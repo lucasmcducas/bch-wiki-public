@@ -29,7 +29,7 @@ The private [`lucasmcducas/ai-workspace-backup`](https://github.com/lucasmcducas
 
 Run `./audit-public.sh` before each push. The script fails the commit if any
 forbidden strings leak through (treasury addresses, mainnet wallet paths,
-specific revenue projections, etc.).
+specific dollar figures, etc.).
 
 ## License
 
