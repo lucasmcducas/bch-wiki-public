@@ -23,7 +23,7 @@ collaboration (see [`syntheses/bch-omarchy-collaboration-plan.md`](syntheses/bch
 
 ## What's NOT here
 
-The private [`lucasmcducas/ai-workspace-backup`](https://github.com/lucasmcducas/ai-workspace-backup) repo contains additional syntheses — business plans, ROI projections, monetization strategy — that are specific to the wallet maintainer's decisions and not relevant to community contributors.
+The private [`lucasmcducas/ai-workspace-backup`](https://github.com/lucasmcducas/ai-workspace-backup) repo contains additional syntheses — internal planning docs — that are specific to the wallet maintainer's decisions and not relevant to community contributors.
 
 ## Audit + safety
 
