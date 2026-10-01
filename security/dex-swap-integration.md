@@ -79,7 +79,9 @@ An integrator relaying both fields will surface the mismatch, because the two ar
 
 `https://broadcast.cauldron.quest/broadcast` accepts a TCP connection on 443 and then fails the TLS handshake: `openssl s_client` reports `no peer certificate available`, and curl reports `tlsv1 alert internal error` in ~0.1s. The A record resolves and the router host on the same Cloudflare range serves normally, so this is the origin's TLS configuration, not a network path problem.
 
-The practical consequence for an integrator: **quoting works while broadcasting does not**, and the two fail independently. A wallet that tests its quote path against live infrastructure can look healthy while being unable to move funds. Test the broadcast path separately, and treat "quote succeeded" as evidence of nothing about broadcast reachability.
+The practical consequence for an integrator: **quoting works while that particular broadcast path does not**, and the two fail independently. A wallet that tests its quote path against live infrastructure can look healthy while being unable to move funds. Test the broadcast path separately, and treat "quote succeeded" as evidence of nothing about broadcast reachability.
+
+**Correction (2026-10-01, after further analysis).** This page originally framed the broken host as an *upstream blocker* on swaps, which was wrong in the only sense that mattered: it framed a single convenience endpoint as if it were the only way to broadcast. It is not. `blockchain.transaction.broadcast` over Electrum works on every node, including for CashTokens, so swapping is **not** blocked on the router's host recovering. The lesson generalises past this host: when an integration stops working, check whether the failing component is actually *required* or merely one path to it, before reporting the dependency as unavailable. See §4 "Broadcasting" for the measurements.
 
 ## 4. What an integrating wallet must verify locally
 
@@ -103,8 +105,36 @@ Everything below is the client's job, and none of it is delegated to the router.
 
 **Broadcasting:**
 
-- Broadcast to a wide endpoint, not a single node. The router's docs are pointed about this: *"trades against the same pools chain on one another, so a transaction that reaches only part of the network is how double-spend conflicts start."* Use `POST https://broadcast.cauldron.quest/broadcast` with `{"tx": "<hex>"}` and expect a `txid` back; treat a non-2xx or unparseable response as a failure, not a success.
+- **Broadcast to a wide endpoint, not a single node.** The router's docs are pointed about this: *"trades against the same pools chain on one another, so a transaction that reaches only part of the network is how double-spend conflicts start."*
+- **You do not need `broadcast.cauldron.quest` at all.** It is a convenience HTTP endpoint, and it was returning **zero bytes over TLS** for an extended period: TCP connects on 443, then the handshake fails with `tlsv1 alert internal error` in ~0.14s. It is not part of the protocol and nothing depends on it.
+- **Use Electrum instead:** `blockchain.transaction.broadcast` with the raw tx hex. It is part of the Electrum protocol, every full node serves it, and it needs no third-party HTTP service. Most wallets already hold such a connection open.
+- **CashTokens-aware nodes broadcast token transactions correctly.** Verified directly rather than assumed: a transaction with a PUSD CashToken output broadcast to `cashnode.bch.ninja` (mainnet) and `chipnet.bch.ninja` returns `"rejected by network rules. dust (code 64)"` at 546 sats and `"rejected by network rules. Missing inputs"` at 2000 sats. Both are consensus-level rejections from a node that parsed the token prefix and reached UTXO lookup; a node that could not decode CashTokens would fail earlier with a decode error.
+- **Do not infer token-awareness from `listunspent`.** The same servers return no `token_data` field for `blockchain.scripthash.listunspent` while accepting token-bearing broadcasts without complaint. UTXO enumeration and broadcast validation are separate code paths. Test the path you actually depend on.
+- If you keep the HTTP endpoint as a fallback, treat **both** failures as a broadcast failure and report both — and note that a broadcast failure is *not* a signing failure. The signed transaction is valid and can be relayed by hand, which is the most useful thing you can tell a user at that moment.
 - Do not treat a successful broadcast as a settled trade. Until it is mined, it is pending, and the DAG semantics above apply in full.
+
+### What a real multi-pool swap's outputs actually look like
+
+This is the part that is easy to get wrong, and worth reading before writing an output verifier. Measured against the live router with a 1 BCH → PUSD build: **31 outputs** for a route through 28 pools.
+
+| Outputs | Shape | What it is |
+|---|---|---|
+| 0–27 | 35 bytes, `aa 20 <32-byte hash> 87` | **Pool covenants.** p2sh32 locking bytecode: `OP_HASH256 OP_PUSHBYTES_32 <32> OP_EQUAL`. One per pool in the route. |
+| 28 | 25 bytes, `76 a9 14 …` | P2PKH to **your** receive address. |
+| 29 | 35 bytes, same shape as a covenant | **The router fee** — 998 sats in the measured build. Not a pool. |
+| 30 | 25 bytes | P2PKH to **your** change address. |
+
+Four consequences for anyone verifying outputs, each of which cost a real debugging cycle:
+
+1. **Shape does not identify ownership.** A 35-byte covenant is *usually* a pool but is sometimes the fee, and the change output can be a covenant too. Ownership must be decided **only** by byte comparison against the addresses you supplied, and that verdict must win over any shape heuristic. A verifier that classifies by shape and then checks ownership will eventually classify one of your own outputs as foreign.
+
+2. **Covenant output values are not satoshis.** The 29 covenant outputs in the measured build sum to **38,035,876,708** — three orders of magnitude more BCH than the transaction contains. Each value is that pool's **token position in base units**, surfaced by the decoder in the same field as an output's satoshi value. Summing them naively makes a check "detect" 38,000 BCH leaving a transaction that only ever held 0.05 BCH. **Exclude covenant values from any satoshi ceiling or conservation check.**
+
+3. **Conservation is about what leaves to addresses you do *not* control.** In the measured build *both* P2PKH outputs are yours — 1,000 sats of PUSD and 3,994,173 sats of BCH change. "Inputs minus all P2PKH outputs" is therefore *not* the fee; it also subtracts your own change, which made the implied fee look like 1,004,827 sats instead of the real 6,673. Count only non-ours P2PKH outputs as leakage.
+
+4. **The pool-count check must be one-directional.** More covenant outputs than the quoted pool count is a problem (value is being committed to liquidity the user did not agree to). Fewer is fine — a router may net several pools' inputs into one output. Allow for the fee output, which shares the covenant shape.
+
+The general rule: **a verifier written before anyone has decoded a real transaction will be wrong about the transaction it verifies.** The fix is to read live output and pin that shape as a fixture, not to reason about what the protocol "should" produce.
 
 ## 5. Operator-specific risk: the DEFi derivation chain
 
