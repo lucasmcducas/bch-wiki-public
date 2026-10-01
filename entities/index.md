@@ -14,4 +14,5 @@
 - [ParyonUSD (PUSD)](paryonusd.md)
 - [Permissionless Software Foundation (PSF)](permissionless-software-foundation.md)
 - [PSF LLM Wiki](psf-llm-wiki.md)
+- [Riften Labs Cauldron Router](riften-router.md)
 <!-- openclaw:wiki:entities:index:end -->

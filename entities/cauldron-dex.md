@@ -123,7 +123,27 @@ Multi-pool swaps just chain more Cauldron inputs/outputs in one tx.
 - No limit orders, no perps, no structured products
 - 0.3% fee is standard but high for stablecoin swaps (where Curve/Uniswap V3 use 0.01–0.05%)
 
+## Who can actually execute a swap
+
+A swap spends a Cauldron pool UTXO, and that input is committed to the **pool
+operator's** public key hash in the pool's locking bytecode. No user wallet
+holds that key, so a wallet alone cannot produce a valid swap — this is a
+property of the protocol, not a wallet limitation.
+
+[Riften Labs](riften-router.md) (Cauldron's operator, and the organisation
+behind Delphi and Moria) run the **Cauldron Router**, a public no-auth
+WebSocket service that assembles the unsigned transaction and names which
+inputs the client owns. The wallet signs only those, and broadcasts via
+`https://broadcast.cauldron.quest/broadcast`.
+
+Practical cost of that route: the router adds a fee on top of the 0.3% LP fee
+(10 bps / 0.1% at time of writing — read it from the build response, it may
+change). See [Riften Labs Cauldron Router](riften-router.md) for the protocol
+and [BCH signing and verification](../references/bch-signing-and-verification.md)
+for the partial-signing traps it introduces.
+
 ## Related pages
+- [Riften Labs Cauldron Router](riften-router.md) — the service that makes a swap executable
 - [ParyonUSD](entities/paryonusd.md) — biggest CashToken by usage
 - [CashTokens](concepts/cash-tokens.md)
 - [Source: Cauldron docs](sources/cauldron-docs.md)

@@ -16,7 +16,9 @@ sourceUrl: https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki
 1. **Entropy source.** The spec requires 128–256 bits of "initial entropy" but does not mandate a CSPRNG. Modern implementations use `crypto.getRandomValues` (browser), `crypto.randomBytes` (Node), or `/dev/urandom` — all CSPRNGs. libauth uses `crypto.getRandomValues`. Wallet authors must verify the runtime actually provides one; a browser without it would silently degrade.
 2. **Checksum.** `CS = ENT/32` bits appended from `SHA256(entropy)`. 128-bit entropy (12-word sentence) yields 132 bits split into 12 × 11-bit wordlist indices. Word typos caught by checksum **unless** the typo lands on another valid word with the same leading bits; first-4-letter-uniqueness is the second defence.
 3. **Wordlist.** BIP-39 "strongly discourages" non-English wordlists — seed derivation hashes the literal NFKD-normalized bytes; translating between wordlists produces a **different seed**. The bch-bot assumes English.
-4. **Mnemonic → seed.** `PBKDF2-HMAC-SHA512(salt="mnemonic"+optional_user_passphrase, iter=2048, dkLen=64)`. The passphrase is **not stored anywhere** — BIP-39's plausible-deniability property. **The bch-bot accepts a `passphrase` arg and stores it in plaintext inside `wallet.json`** ([wallet.mjs L50](/home/luke/bch-bot/lib/wallet.mjs)) — destroying plausible deniability. **Pitfall.**
+4. **Mnemonic → seed.** `PBKDF2-HMAC-SHA512(salt="mnemonic"+optional_user_passphrase, iter=2048, dkLen=64)`. The passphrase is **not stored anywhere** — BIP-39's plausible-deniability property. **The bch-bot accepts a `passphrase` arg**, which is the BIP-39 passphrase (not the wallet-encryption passphrase) and is written into `wallet.json` as part of the wallet record. When no wallet passphrase is supplied the file is written in the legacy plaintext form (`version: 1`); supplying one produces `version: 2`, scrypt + AES-256-GCM at rest, and the BIP-39 passphrase is then only ever inside the ciphertext. **The passphrase is never stored alongside a v2 wallet** — only the KDF salt and cipher IV/tag. See [§6](#6-key-storage).
+
+> **Correction (2026-10-01).** This page previously stated the passphrase was always stored in plaintext. That was true when written and is now fixed in the code: `createWallet({ walletPassphrase })` encrypts. The plaintext path still exists as the default when no passphrase is given, so the caveat is now about *default configuration* rather than a missing feature.
 
 **Import validation.** libauth's `deriveSeedFromBip39Mnemonic` returns a `string` error on invalid checksum. The bch-bot's `loadHdNode()` checks `typeof hdNode === 'string'` only after HD-node construction, so a failed checksum throws deep inside derivation with a confusing error. **Mitigation: pre-validate the mnemonic before calling HD.**
 
@@ -129,7 +131,7 @@ ECDSA signing implementations can leak the private key through timing variations
 
 ### Passphrase encryption
 
-Wrap `wallet.json` in AES-256-GCM with a scrypt-derived key (scrypt = moth credentials skill; PBKDF2-SHA512 600k iterations acceptable; Argon2id best). Store ciphertext, salt, nonce, and scrypt params in place of plaintext mnemonic. Prompt passphrase on each bot startup (or each send for higher security). **bch-bot does not implement this yet.**
+Wrap `wallet.json` in AES-256-GCM with a scrypt-derived key (scrypt = moth credentials skill; PBKDF2-SHA512 600k iterations acceptable; Argon2id best). Store ciphertext, salt, nonce, and scrypt params in place of plaintext mnemonic. Prompt passphrase on each bot startup (or each send for higher security). **Implemented in bch-bot** — `createWallet({ walletPassphrase })` writes `version: 2` (scrypt + AES-256-GCM) and `loadWallet` requires the passphrase back. Covered by `scripts/test-wallet-encryption.mjs`. The gap is that it is **opt-in**: without `walletPassphrase` the file is still written as plaintext `version: 1`, so the safer path is not the default one.
 
 ### Hardware wallet integration via PSBT
 
@@ -173,7 +175,7 @@ BCH supports P2SH multisig (m-of-n) and P2SH32 (CashTokens-aware). A 2-of-3 mult
 3. **Side-channel hardening of JS signing.** Browser-based wallets theoretically vulnerable to cache-timing; no production deployment addresses this.
 4. **Multisig UX.** P2SH multisig exists in Selene and Electron Cash but flows are rough; users make mistakes (wrong change outputs, sighash flags) that lose funds.
 5. **Passphrase-loss recovery.** Forget the BIP-39 passphrase and the funds are gone; no recovery, most wallets warn insufficiently.
-6. **Encrypted-at-rest for bch-bot.** Ships plaintext `wallet.json`; moth same; Selene encrypts on mobile but softer on desktop. No ecosystem convergence.
+6. **Encrypted-at-rest as the default.** bch-bot *can* encrypt (scrypt + AES-256-GCM, `version: 2`) but only when a wallet passphrase is passed, so a default install is still plaintext `version: 1`. moth is the same; Selene encrypts on mobile but softer on desktop. No ecosystem convergence.
 
 ## References
 
