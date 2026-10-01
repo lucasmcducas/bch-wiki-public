@@ -2,14 +2,16 @@
 pageType: entity
 entityType: software
 id: entity.selene-wallet
-description: Selene Wallet - BSD-3 licensed BCH wallet (last commit 2026-09-17) shipped as a React/Capacitor desktop+mobile app. Canonical reference for CashTokens-aware wallet kernel: KeyManager, AddressManager, ElectrumService, TransactionBuilder, UtxoManager, TokenManager. Pattern source for the bch-bot build.
+description: Selene Wallet - BSD-3 licensed BCH wallet (last commit 2026-09-29) shipped as a React/Capacitor mobile+web app (iOS/Android via Capacitor, browser web build). Canonical reference for CashTokens-aware wallet kernel: KeyManager, AddressManager, ElectrumService, TransactionBuilder, UtxoManager, TokenManager. Pattern source for the bch-bot build.
 sourceUrl: https://gitlab.com/selene.cash/selene-wallet
 mirror: https://git.xulu.tech/selene.cash/selene-wallet
 ---
 
 # Selene Wallet
 
-> Selene Wallet — BSD-3 licensed, actively maintained (last commit **2026-09-17**) BCH wallet by Kallisti. Ships with full CashTokens (FT + NFT) support, ships on desktop (Electron) and mobile (iOS/Android via Capacitor). **Canonical reference for any headless BCH wallet bot**: the kernel services in `src/kernel/` are well-architected and can be re-implemented as Node.js scripts without the React/Capacitor/Redux UI layer.
+> Selene Wallet — BSD-3 licensed, actively maintained (last commit **2026-09-29**) BCH wallet by Kallisti. Ships with full CashTokens (FT + NFT) support, ships on mobile (iOS/Android via Capacitor) and as a browser web build. **Canonical reference for any headless BCH wallet bot**: the kernel services in `src/kernel/` are well-architected and can be re-implemented as Node.js scripts without the React/Capacitor/Redux UI layer.
+
+> **Correction (2026-10-01): there is no desktop/Electron build.** This page previously said "ships on desktop (Electron) and mobile". Verified against `main` HEAD `48237e6`: no Electron dependency in `package.json`, no `src-electron/` directory, and the only occurrences of the string "electron" in the whole tree are two commented-out Electrum server hostnames in `src/util/network.ts`. `README.md` gives build instructions for Android and iOS only, and [selene.cash](https://selene.cash/) offers "Try Web Version" and "Download .apk" — no desktop installer. This matters for security, not just accuracy: the web build's encryption is a **passthrough** (see [`../security/wallet-key-storage.md`](../security/wallet-key-storage.md) §3.1), so there is no hardened-desktop tier to point desktop users at.
 
 **Repository:** [gitlab.com/selene.cash/selene-wallet](https://gitlab.com/selene.cash/selene-wallet) (mirrored at [git.xulu.tech/selene.cash/selene-wallet](https://git.xulu.tech/selene.cash/selene-wallet))
 **License:** BSD-3-Clause

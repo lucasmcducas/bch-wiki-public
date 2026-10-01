@@ -1,7 +1,7 @@
 ---
 pageType: synthesis
 id: synthesis.security-kb
-description: Index + executive summary for the bch-bot security knowledge base. Four reference docs covering BCH UTXO security in depth, built by a 4-subagent parallel research team in 2026-09-19.
+description: Index + executive summary for the bch-bot security knowledge base. Six reference docs covering BCH UTXO security, wallet key storage, and DEX integration in depth. Original 4 built 2026-09-19; wallet-production audit added 2026-10-01.
 sourceUrl: internal/synthesis
 ---
 
@@ -20,8 +20,10 @@ sourceUrl: internal/synthesis
 | [`utxo-and-mempool.md`](utxo-and-mempool.md) | Dust thresholds (P2PKH vs P2SH vs NFT-bearing), UTXO selection strategies, fee estimation, mempool policy, double-spend prevention, 0-conf acceptance, the unconfirmed-parent gotcha | Subagent 2 |
 | [`wallet-threat-model.md`](wallet-threat-model.md) | BIP-39/32/44 derivation (BCH coin type 145, m/44'/145'/0'), change-chain privacy, key-at-rest, hardware wallet integration, npm supply-chain threats, real-world BCH wallet incidents | Subagent 3 |
 | [`cashtokens.md`](cashtokens.md) | Commitment formats (category vs commitment), minting/smelting covenant primitives, transaction replay risks, token indexer trust assumptions, P2SH-32 limitations, Cauldron-specific risks, libauth @cashlab/* patterns | Subagent 4 |
+| [`wallet-key-storage.md`](wallet-key-storage.md) | **What four production BCH wallets actually do at rest**, read from source: KDF, cipher, salt and file layout for Cashonize, Selene, Paytaca and Electron Cash — plus the platform shims that silently disable encryption | Subagent (2026-10-01) |
+| [`dex-swap-integration.md`](dex-swap-integration.md) | **Integrating a wallet with a CashTokens DEX**: the operator-signing problem, the router's 10 bps fee output and build safety gate, CPMM DAG slippage semantics, the client's pre-signing verification checklist | Subagent (2026-10-01) |
 
-**Total: ~1,192 lines / ~8,000 words across 4 reference docs.**
+**Total: ~1,192 lines / ~8,000 words across the original 4 reference docs, plus 2 new pages from the 2026-10-01 production-wallet audit.**
 
 ## Executive summary (cross-cutting findings)
 
@@ -43,10 +45,20 @@ If you read nothing else, read these:
 
 8. **PUSD price ≠ $1 always.** Per the existing wiki entity page, PUSD is a stablecoin aiming at $1, but Cauldron's thin liquidity causes deviations. The bch-bot quotes live prices via `lib/cauldron.mjs::getTokenPrice` and surfaces the real rate in swap quotes.
 
+9. **"Encrypted at rest" is a per-platform claim, not a per-wallet one.** Two of the four production wallets audited ship a web implementation whose `encrypt()` returns its input unchanged. Selene's wallet-file export always calls `SimpleEncryption.encrypt` — on web that is a no-op, so the file is plain JSON containing `mnemonic` and `passphrase`. **Check whether a wallet file starts with `{` before assuming it is encrypted.** See [`wallet-key-storage.md`](wallet-key-storage.md).
+
+10. **The most widely used BCH wallet has the weakest KDF.** Electron Cash derives its wallet-file key with `pbkdf2_hmac('sha512', pw, b'', iterations=1024)` — 1024 iterations and an **empty salt**, inherited from Electrum since 2013. Cipher is ECIES with AES-256-CBC + HMAC-SHA256 (authenticated, not AEAD). Inherited-era debt is a recurring theme: Electron Cash's phishing mitigation for server lists was enabled by default and later reverted.
+
+11. **A DEX swap inverts the trust model, and the client's pre-signing checks are the whole defence.** A Cauldron swap spends a pool UTXO committed to the *operator's* key, so the wallet signs a transaction it did not author. The Router discloses which inputs you own, supplies prevouts for all inputs (enabling `SIGHASH_ALL` over the whole tx), and runs a fail-closed safety gate (token conservation, sane miner fee, fee output present, dust). It never broadcasts. None of that replaces local verification — decode the inputs, explain every output, check token `Σ in == Σ out` yourself, and enforce your own slippage floor. See [`dex-swap-integration.md`](dex-swap-integration.md).
+
+12. **No public CVE exists for any production BCH wallet — do not read that as a clean bill of health.** Cashonize maintains an honest `security-considerations.md` and explicitly scopes plaintext seed storage *out* of its vulnerability programme. Documented risk is the dominant failure mode in this ecosystem, not undisclosed vulnerabilities.
+
 ## How to use this KB
 
-- **Before a security audit:** read all four docs end-to-end (~30 min). Each doc cites primary sources (BIPs, BCHN release notes, CashScript specs) so you can verify claims.
+- **Before a security audit:** read all six docs end-to-end (~45 min). Each doc cites primary sources (BIPs, BCHN release notes, CashScript specs, wallet source files) so you can verify claims.
 - **When hardening bch-bot:** the `wallet-threat-model.md` doc maps specific threat classes to specific code paths in `lib/wallet.mjs`, `lib/sign.mjs`, and `lib/network.mjs`.
+- **When comparing your wallet to production wallets:** `wallet-key-storage.md` has the KDF/cipher/salt table for Cashonize, Selene, Paytaca and Electron Cash, read from source.
+- **When integrating any DEX or swap UI:** `dex-swap-integration.md` has the pre-signing verification checklist and the slippage semantics.
 - **When debugging a stuck transaction:** start with `utxo-and-mempool.md` (dust policy + unconfirmed-parent gotcha).
 - **When adding a new CashTokens operation:** start with `cashtokens.md` (commitment format + indexer trust).
 - **When changing the sighash flag or signing template:** start with `script-and-signing.md` (0x41 vs 0x61).

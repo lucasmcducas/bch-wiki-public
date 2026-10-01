@@ -94,7 +94,9 @@ For non-trivial balances, **plaintext-at-rest is insufficient**. Counter-measure
 4. **BIP-39 passphrase prompt at runtime** — gives plausible deniability if passphrase is not stored. The bch-bot currently stores the passphrase in `wallet.json` next to the mnemonic ([wallet.mjs L50](/home/luke/bch-bot/lib/wallet.mjs)) — **defeats the purpose**. Prompt at runtime, do not persist.
 5. **OS keychain** (`secret-tool` / `pass`) — avoids plaintext on disk; still requires runtime read.
 
-**Selene** uses Capacitor's `SimpleEncryption` on mobile (iOS Keychain, Android Keystore). Desktop (Electron) uses a database-backed store with passphrase-derived keys — better than plaintext but weaker than mobile.
+**Selene** uses Capacitor's `SimpleEncryption` on native (iOS Keychain, Android Keystore) — genuinely strong: PBKDF2-HMAC-SHA256 at 100 000 iterations wrapping a random AES-256-GCM data key, `.biometryCurrentSet` / `setInvalidatedByBiometricEnrollment(true)`, device-only storage mode, and an escalating PIN lockout ladder.
+
+> **Correction (2026-10-01).** This line previously read "Desktop (Electron) uses a database-backed store with passphrase-derived keys — better than plaintext but weaker than mobile." Both halves were wrong. **Selene has no desktop/Electron build at all** (no Electron dep in `package.json`, no `src-electron/`, build docs cover only Android and iOS, and selene.cash ships only Web + `.apk`). And there is no intermediate tier: the **web** build's `encrypt()` is a passthrough that returns its input unchanged, so a wallet exported from a browser is plain JSON containing `mnemonic` and `passphrase`. Selene is therefore native-hardened **or** web-plaintext, with nothing between. Full evidence, including the format-sniff a wallet file must be checked with, in [`wallet-key-storage.md`](wallet-key-storage.md) §3.
 
 ## 7. Threat models
 
@@ -168,6 +170,20 @@ BCH supports P2SH multisig (m-of-n) and P2SH32 (CashTokens-aware). A 2-of-3 mult
 
 **Notable absences:** no publicly known BIP-39 wordlist manipulation attack (BIP-39 checksum + first-4-letter uniqueness catches most); no publicly known BIP-32 derivation collision (~1/2¹²⁷); no publicly known cashaddr polymod checksum bypass.
 
+**As of 2026-10-01, still true: no publicly disclosed CVE or funded-loss incident attributable to any of the five production BCH wallets researched (Cashonize, Selene, Paytaca, Electron Cash, BCHN).** Searching CVE/GHSA for these vendors returns only Bitcoin Core advisories inherited through BCHN's fork ancestry. What exists instead is *documented risk*, which is not the same as a closed vulnerability:
+
+| Finding | Source | Status |
+|---|---|---|
+| Cashonize stores seed unencrypted in IndexedDB on all platforms | `cashonize-wallet/security-considerations.md` | **Declared out of scope** in `SECURITY.md`; encryption "on the roadmap" |
+| Selene's web `encrypt()` is a passthrough — exported wallets are plaintext JSON | `capacitor-plugin-simple-encryption/src/web.ts:102-109` | Documented in the plugin's own header comment |
+| Electron Cash wallet KDF is PBKDF2-SHA512, **1024 iterations, empty salt** | `electroncash/storage.py::get_key` | Unfixed, inherited from Electrum since 2013 |
+| Electron Cash "Connect only to Preferred Servers" phishing mitigation was enabled by default, then **reverted** | `RELEASE-NOTES` 3.x → 4.0.15 | Do not rely on it |
+| CashShuffle reused addresses in some outputs (de-anonymisation) | `RELEASE-NOTES` 4.0.14 | Patched |
+| Electron Cash JSON-RPC security fixes | `RELEASE-NOTES` 3.1.1, 3.1.2 | Patched |
+| Paytaca ships `@bitauth/libauth: 2.0.0-alpha.8` — an **alpha** crypto lib on a production wallet | `paytaca-app/package.json` | Unaddressed; watch this |
+
+The pattern worth naming: **the BCH wallet ecosystem documents its known weaknesses rather than shipping CVEs for them.** Cashonize in particular keeps an honest `security-considerations.md` and explicitly scopes plaintext storage out of its vulnerability programme. That is better disclosure hygiene than most wallets manage, but it means a CVE search returns a misleadingly clean result — absence of CVEs here reflects absence of an audit function, not absence of risk.
+
 ## What's not solved
 
 1. **Air-gapped BCH signing.** No production BCH-only air-gap signer with PSBT support; Coldcard and Specter DIY are BTC-only.
@@ -175,17 +191,22 @@ BCH supports P2SH multisig (m-of-n) and P2SH32 (CashTokens-aware). A 2-of-3 mult
 3. **Side-channel hardening of JS signing.** Browser-based wallets theoretically vulnerable to cache-timing; no production deployment addresses this.
 4. **Multisig UX.** P2SH multisig exists in Selene and Electron Cash but flows are rough; users make mistakes (wrong change outputs, sighash flags) that lose funds.
 5. **Passphrase-loss recovery.** Forget the BIP-39 passphrase and the funds are gone; no recovery, most wallets warn insufficiently.
-6. **Encrypted-at-rest as the default.** bch-bot *can* encrypt (scrypt + AES-256-GCM, `version: 2`) but only when a wallet passphrase is passed, so a default install is still plaintext `version: 1`. moth is the same; Selene encrypts on mobile but softer on desktop. No ecosystem convergence.
+6. **Encrypted-at-rest as the default.** bch-bot *can* encrypt (scrypt N=32768 + AES-256-GCM, `version: 2`) but only when a wallet passphrase is passed, so a default install is still plaintext `version: 1`. moth is the same. Selene is native-hardened but **web-plaintext** (passthrough shim). Cashonize is plaintext on every platform and says so. Paytaca is encrypted on web via a `patch-package` patch whose AES key sits in the same IndexedDB as the ciphertext. Electron Cash's default PBKDF2 is 1024 iterations with an **empty salt**. No ecosystem convergence. Evidence: [`wallet-key-storage.md`](wallet-key-storage.md).
+7. **A platform shim can silently disable encryption.** Two of the four wallets researched ship a web `encrypt()` that returns its input unchanged. Any review that reads only the native crypto path will conclude they are well encrypted. Check `Capacitor.isNativePlatform()` branches and the web stub, not the mobile source.
 
 ## References
 
 - BIP-39: <https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki>
+- BIP-38: <https://github.com/bitcoin/bips/blob/master/bip-0038.mediawiki>
 - BIP-32: <https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki>
 - BIP-44: <https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki>
 - SLIP-0044 (BCH = 145): <https://github.com/satoshilabs/slips/blob/master/slip-0044.md>
 - Trezor coins-bip44-paths: <https://github.com/trezor/trezor-firmware/blob/main/docs/misc/coins-bip44-paths.md>
 - Ledger BCH support: <https://support.ledger.com/article/360009676633-zd>
-- Electron Cash: <https://electroncash.org/>
+- Electron Cash: <https://electroncash.org/> (source: <https://github.com/Electron-Cash/Electron-Cash>)
+- Cashonize: <https://github.com/cashonize/cashonize-wallet> (`security-considerations.md`, `SECURITY.md`)
+- Selene encryption plugin: <https://git.xulu.tech/selene.cash/capacitor-plugin-simple-encryption>
+- Paytaca: <https://github.com/paytaca/paytaca-app>
 - CashFusion: <https://cashfusion.org/>
 - Selene Wallet: <https://gitlab.com/selene.cash/selene-wallet>
 - libauth: <https://github.com/bitauth/libauth>

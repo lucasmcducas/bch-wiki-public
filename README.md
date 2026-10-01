@@ -18,7 +18,7 @@ collaboration (see [`syntheses/bch-omarchy-collaboration-plan.md`](syntheses/bch
 | `references/` | Topical reference docs (zero-conf security, economics primer, Omarchy research) |
 | `sources/` | Raw source excerpts (release notes, official docs) |
 | `concepts/` | BCH concepts (CashTokens, Cash Stack, etc.) |
-| `security/` | BCH UTXO security knowledge base (4 docs) |
+| `security/` | BCH UTXO + wallet security knowledge base (6 docs) |
 | `syntheses/` | Higher-level synthesis docs (architecture, PUSD integration, the collaboration plan itself) |
 
 ## What's NOT here
