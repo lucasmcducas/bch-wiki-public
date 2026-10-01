@@ -58,6 +58,29 @@ The downside is the mirror image of the last point: a miner may drop a transacti
 
 **Slippage floor semantics differ by side.** `min_output` is the only slippage control the protocol exposes, and it applies to `side: "sell"` only — in buy mode the output *is* the amount requested, so there is nothing to protect. An integration that exposes a slippage field on a buy-side order is showing a control that does nothing.
 
+**A CLI whose amount is always denominated in the sell asset should use `side: "sell"`, and that is not a bug.** It is tempting to read a hardcoded `side: "sell"` as a buy/sell mix-up. It is not: the user names the asset they are spending and how much of it, so sell-side quoting is the correct semantic for the whole command surface. Buy-mode `min_output` is a control that does nothing, so hardcoding the sell side is what keeps the CLI honest. The guard belongs in one place — a boundary that throws when a floor is passed with a side that cannot enforce it.
+
+### Live measurement: `market_pre_price` and `output_amount` disagree
+
+Observed 2026-10-01 against the live router, 1 BCH → PUSD (2 decimals):
+
+| Field | Value |
+|---|---|
+| `input_amount` | `99999735` (0.99999735 BCH) |
+| `output_amount` | `36141` (361.41 PUSD) |
+| `market_pre_price` | `3434.87` |
+| `pools` | `68` |
+
+`output_amount / input_amount` is **361.41**, but `market_pre_price` says **3434.87** — roughly 9.5x apart. The output is the reliable number: the implied rate is stable across input sizes (0.1, 1 and 2 BCH all returned ~360-362), and a reverse quote agrees on the same order of magnitude.
+
+An integrator relaying both fields will surface the mismatch, because the two are in **different units** — the pool's marginal price in one scale and the trade's realised rate in another. Trust `expected_output`; treat `market_pre_price` and `market_post_price` as advisory only, and never render them to a user as the price they are paying until the units are reconciled with Riften. Note that `market_pre_price` is the field most likely to be used to show a user "you save X%" — that number is currently untrustworthy.
+
+### Live measurement: broadcast host TLS is broken
+
+`https://broadcast.cauldron.quest/broadcast` accepts a TCP connection on 443 and then fails the TLS handshake: `openssl s_client` reports `no peer certificate available`, and curl reports `tlsv1 alert internal error` in ~0.1s. The A record resolves and the router host on the same Cloudflare range serves normally, so this is the origin's TLS configuration, not a network path problem.
+
+The practical consequence for an integrator: **quoting works while broadcasting does not**, and the two fail independently. A wallet that tests its quote path against live infrastructure can look healthy while being unable to move funds. Test the broadcast path separately, and treat "quote succeeded" as evidence of nothing about broadcast reachability.
+
 ## 4. What an integrating wallet must verify locally
 
 Everything below is the client's job, and none of it is delegated to the router. This is the checklist that a swap implementation should not be considered complete without.
