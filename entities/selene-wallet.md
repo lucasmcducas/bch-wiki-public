@@ -61,7 +61,21 @@ Selene declares two protocol version constants:
 - `ELECTRUM_PROTOCOL_VERSION = "1.5"`
 - `ROSTRUM_PROTOCOL_VERSION = "1.4.3"`
 
-**Reality (verified 2026-09-17):** all reachable servers (electrum AND rostrum) actually report protocol `"1.5"` in the `server.version` response. The "1.4.3" rostrum string is aspirational/historical. **Use `"1.5"` for both.** Negotiating with `"1.4.3"` fails with `"unsupported protocol version"` on every server tested.
+**CORRECTION (2026-10-01) — the claim below was wrong and it shipped as a bug.**
+
+An earlier version of this page read: *"all reachable servers actually report protocol `1.5`; use `1.5` for both; negotiating `1.4.3` fails with `unsupported protocol version` on every server tested."* That is the inverse of what the mainnet Fulcrum 2.1.2 nodes do, and following it is what produced the bug recorded in `syntheses/failure-modes-we-hit.md` §15.
+
+Measured directly on `cashnode.bch.ninja:50004` over TLS+WebSocket:
+
+| Requested | Result |
+|---|---|
+| `["1.4","1.4.3","1.5"]` | `ERROR Unsupported protocol version` |
+| `["1.4","1.4.3"]` | `["Fulcrum 2.1.2","1.4.3"]`, real data returned |
+| `["1.5"]` | `ERROR Unsupported protocol version` |
+
+Asking for `1.5` does not fail loudly. The socket opens, `server.version` answers plausibly, `blockchain.scripthash.*` keeps working, and every other `blockchain.*` call returns an **empty object `{}`** — so balance reads zero and swaps fail with `Missing inputs`, with no error anywhere.
+
+**Use `electrum: '1.4', rostrum: ['1.4','1.4.3']`** — offer the list, newest first, so a genuinely newer node can still select a newer version. The original "verified" note was most likely taken from Selene's *constants* (`"1.5"`) or from a server's reported `server.version` string, rather than from a successful transaction fetch; a version string is not proof a version works.
 
 ## Kernel services (the parts worth borrowing)
 

@@ -1,7 +1,7 @@
 ---
 pageType: synthesis
 id: synthesis.failure-modes-we-hit
-description: Concrete failure modes found by auditing bch-bot and the Omarchy plugin in production — silent-fallback bugs, gates that pass while printing errors, fabricated constants, and unit/label mismatches. Written from fixes that shipped, 2026-10-01.
+description: Concrete failure modes found by auditing bch-bot and the Omarchy plugin in production — silent-fallback bugs, gates that pass while printing errors, fabricated constants, unit/label mismatches, and protocol-version bugs that zero every read. Written from fixes that shipped, 2026-10-01.
 sourceUrl: internal/synthesis
 ---
 
@@ -343,6 +343,188 @@ import it. A path computed twice is a coin flip.
 
 ---
 
+## 15. A protocol version the servers do not implement — which zeroes every read
+
+`lib/network.mjs` negotiated Electrum protocol `1.5`. The public mainnet nodes
+(Fulcrum 2.1.2, `cashnode.bch.ninja:50004` and peers) implement `1.4` and
+`1.4.3`. Asking for `1.5` does **not** produce an error. The sequence is:
+
+- the TLS + WebSocket socket opens normally;
+- `server.version` answers plausibly;
+- `blockchain.scripthash.*` keeps working, so UTXO scans look healthy;
+- every other `blockchain.*` call — `transaction.get`, `transaction.broadcast`,
+  `cash.*` — returns an **empty object `{}`**.
+
+The consequence is that balance reads as zero and swaps broadcast as
+`Missing inputs`, with no error emitted anywhere in the process. A green log and
+an empty balance are indistinguishable from a rich wallet with a bad display.
+
+Verified by hand over a raw TLS+WebSocket session on the same host:
+
+| Requested | Result |
+|---|---|
+| `["1.4","1.4.3","1.5"]` | `ERROR Unsupported protocol version` |
+| `["1.4","1.4.3"]` | `["Fulcrum 2.1.2","1.4.3"]`, `transaction.get` returns real bytes |
+| `["1.5"]` | `ERROR Unsupported protocol version` |
+
+**Rule:** offer the *list* the servers implement, newest first
+(`electrum: '1.4', rostrum: ['1.4','1.4.3']`), so a newer node can still select
+a newer version. Pinning a single version is what created the failure. And
+when a wallet reports an empty balance with no error, check the negotiated
+version before anything else.
+
+**The same page previously carried the wrong advice** — it stated that Rostrum
+servers reply `"1.5"` regardless of docs and that `1.5` should be used for both
+Electrum and Rostrum. That line is what the fix contradicted. Prose in a wiki is
+not evidence; the raw wire is.
+
+---
+
+## 16. `{}` is a non-answer, not a value
+
+Electrum's empty-object response got read three different wrong ways during one
+debugging session:
+
+- as success — a `broadcast` that returned `{}` was logged as
+  `BROADCAST ACCEPTED`, when no transaction had been broadcast at all;
+- as proof of absence — "the node does not have this transaction";
+- as a reason to change unrelated code.
+
+`{}` means *this call did not produce a usable answer*. The same call can return
+real bytes moments later on the same host with the same session, and `{}` for a
+different method shape. It is never a value to reason from.
+
+**Rule:** before concluding anything from an empty response, re-ask over a raw
+socket and print the actual reply. In this investigation every correct answer
+came from a hand-rolled TLS+WebSocket session, and every wrong answer came from
+reading library files or trusting a return value.
+
+---
+
+## 17. `request` is variadic — nesting the params array silently breaks a call
+
+`ElectrumClient.request` is declared `request(method, ...parameters)`. Calling
+`request('blockchain.transaction.get', [txid, false])` puts `[[txid, false]]` on
+the wire. A method that otherwise works answers `{}`.
+
+This one mistake cost hours, because it made a healthy node look broken: the same
+transaction was `21702` bytes via `request(m, txid, false)` and `{}` via
+`request(m, [txid, false])`. Every call site in the codebase used the correct
+variadic form — only the ad-hoc probe was wrong — so the production path was
+never affected. That is the worst case for a debugging tool: it is wrong only
+when you are already relying on it.
+
+**Rule:** `request(method, a, b)`, never `request(method, [a, b])`. When a probe
+disagrees with production code, suspect the probe first.
+
+---
+
+## 18. A txid has two byte orders, and the wrong one looks like "no such transaction"
+
+libauth's `outpointTransactionHash` is stored little-endian (wire order).
+Electrum's `tx_hash` is the big-endian *display* form — the byte-reverse. The
+two are exact reversals of each other, so a lookup with the wrong order returns
+`No such mempool or blockchain transaction` for a transaction that plainly
+exists. In a routed swap the parent outpoints come from libauth, so the wire
+order is what the node must be asked for.
+
+**Rule:** compute both, try both, and log which one answered. An existing
+transaction reporting as unknown is a byte-order bug until proven otherwise.
+
+---
+
+## 19. Scanning only receiving addresses silently hides the change balance
+
+`scripts/swap.mjs` collected funding UTXOs from `deriveReceivingAddresses(20)`
+and never looked at change addresses. On the funded wallet, 856,855 of
+1,657,855 sat sat on a change address, so the swap could only ever offer
+801,000 sat. The wallet's *reported balance* was right; its *usable balance*
+was understated by more than half, and nothing printed a warning.
+
+`balance.mjs` and `sweep.mjs` already scanned receiving **and** change. One
+script disagreeing with its two siblings is the signal.
+
+**Rule:** when one script's numbers differ from the others, that script is the
+bug. Change is money the wallet sent itself and got back — excluding it
+understates spendable funds and makes later fee arithmetic wrong.
+
+---
+
+## 20. Signing a transaction whose pool inputs are already spent
+
+The Riften router serves pool state that competing swaps consume. A pool
+covenant that was unspent when the route was quoted may be gone by the time the
+transaction is broadcast, and Bitcoin ABC rejects the result with
+`the transaction was rejected by network rules. Missing inputs`.
+
+That error reads like a malformed transaction rather than a spent input, and
+discovering it after signing costs a signature plus a failed-broadcast fee. In
+Bitcoin ABC `TX_MISSING_INPUTS` is set in exactly two places, both pure
+UTXO-availability checks (`!HaveCoin`, `!HaveInputs`); a bad scriptSig gives
+`mandatory-script-verify-flag-failed` instead. So **"Missing inputs" is never a
+script or signature problem** — it is an availability problem, and an
+unspent-output check is exactly the right pre-flight test.
+
+`swap.mjs` now checks every router-owned input before signing and refuses with a
+distinct exit code. Two refinements the first version got wrong:
+
+- It reported "already spent" for a *failed read*. A node that answers `{}` to
+  every `transaction.get` is a transport condition, not proof the pools are
+  spent. When the check cannot read the pool inputs at all it says so and lets
+  the broadcast settle the question.
+- It assumed one byte order for the parent outpoint (see §18), which reported a
+  healthy route as "parent unknown".
+
+**Rule:** a safety check that cannot complete must not report a confident
+negative. Distinguish *known bad* from *could not determine*, and let the
+authoritative operation decide. And read the error's source before theorising
+about its cause — an error string names a reason, not a subsystem.
+
+---
+
+## 21. A 69-byte covenant scriptSig is correct, not unsigned
+
+A routed swap has 15 inputs and 15 outputs: 2 wallet P2PKH inputs and 13 pool
+covenant inputs, plus a matching set of P2SH covenant outputs paying the pools
+back. The covenant scriptSigs are 69 bytes and contain no DER signature, which
+reads as "the router forgot to sign" and is not.
+
+`POOLV0_SIZE = 6 + 20 + 43 = 69` exactly. That is CHIP-2022-05's
+`<push redeem_script>` — a signature-free unlock, the `0x44` opcode plus a
+68-byte push. The `swap()` ABI takes **no arguments**; the `OP_CHECKSIG` branch
+of a pool contract is only for *withdraw*. A 69-byte scriptSig starting `0x44`
+with no signature is the correct shape.
+
+Note also that `bitcoinjs-lib` cannot express P2SH32 at all —
+`p2sh({hash:<32 bytes>})` throws `Expected Buffer(Length: 20)`. P2SH32 work
+needs libauth or cashscript.
+
+**Rule:** before calling a script malformed, find the contract's actual
+unlocking rule. A missing signature and a signature that is not required look
+identical from the outside; only the spec distinguishes them.
+
+---
+
+## 22. Running a script directly queries a different wallet
+
+`bch-bot` is a shim that exports `BCH_WALLET_DIR` itself. Running
+`node some-script.mjs` directly skips the shim, so `lib/wallet.mjs` falls back
+to `~/.bch-wallet` — on this box a different, empty wallet. Every derived
+address is then wrong, `listunspent` returns nothing, and the wallet appears
+empty.
+
+This produced a convincing phantom: "the wallet holds 0 UTXOs" while
+`bch-bot balance` reported three. It also produced a false alarm that the funded
+addresses were not ours — they were, at index 0 and change index 19 of the
+correct wallet; the scan had been reading the wrong one.
+
+**Rule:** when running project code outside its entry point, set the
+environment its entry point sets. A tool that queries a different store than
+the one under test will disagree with it, and the tool is usually the one that
+is wrong.
+
+---
+
 ## The through-line
 
 Every one of these is a case where the code **looked** like it was doing the
@@ -360,6 +542,14 @@ right thing:
 | `"always sweep for now"` | a policy decision |
 | quote vs build match | a verification |
 | a green test | a passing test |
+| protocol `1.5` | a modern-looking version |
+| `{}` from a call | a result |
+| `request(m, [a, b])` | a params array |
+| one txid byte order | the txid |
+| receiving-only scan | the funded set |
+| signing before checking | signing |
+| a 69-byte scriptSig | an unsigned input |
+| `node script.mjs` | running the tool |
 
 The defence is the same in every case: **push the rule down the mechanism
 hierarchy** — type system → lint that fails CI → banned API → runtime check →
