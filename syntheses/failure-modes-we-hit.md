@@ -525,6 +525,86 @@ is wrong.
 
 ---
 
+## 23. A token output with no token in it
+
+`outputToLibauth` in `lib/sign.mjs` builds a CashToken output like this:
+
+```js
+export function outputToLibauth({ address, valueSatoshis, token }) {
+  return {
+    lockingBytecode: addressToLockingBytecode(address),   // plain P2PKH
+    valueSatoshis: BigInt(valueSatoshis),
+    token,                                                // passed and ignored
+  };
+}
+```
+
+libauth's `generateTransaction` accepts a ready-made `lockingBytecode`, so it
+never encodes the token: the `token` field travels alongside the output and is
+dropped. The result is a bare P2PKH output with **no CashToken prefix at all**,
+and the node rejects it with `bad-txns-vout-tokenprefix (code 16)`. The
+transaction is otherwise perfectly formed and correctly signed, which is what
+makes this expensive to diagnose: nothing in the logs is wrong except the
+outcome.
+
+This affects `send-token.mjs` too, not just a test harness. The token send path
+has never worked and cannot work until the prefix is prepended to the locking
+bytecode.
+
+**The real format, read off a live mainnet token output** (not from memory, not
+from the spec — decoded from a node-accepted transaction):
+
+```
+<35-byte token prefix> <locking bytecode>
+ef 53ff3501720c686780457d9affa6e60f552f5685bb6a768325f926a380ef2c891064
+76a9146497169ae687839e67e7ea6313854f14c2d60ac988ac
+^^^^^^^^^^ 35 bytes                            ^^^^^^ P2PKH, 25 bytes
+```
+
+- The prefix is **prepended**, not appended, and not wrapped in `OP_RETURN` —
+  the script's first byte is `0xef`, not `0x6a`.
+- Two token outputs in the same transaction share a byte-identical 35-byte
+  prefix and differ only where their locking bytecode begins, so the prefix does
+  **not** carry the amount. Amount lives in the token accounting, not the script.
+- The 35-byte prefix is identical across outputs paying *different* addresses,
+  so it identifies the token, not the destination.
+
+**Rule:** a constructor that accepts a field and passes it to a library that
+does not consume it produces a structurally valid object that is semantically
+empty. When a transaction is rejected for a field you set, decode the bytes you
+actually produced and compare them with a transaction the node accepted — a
+spec written from memory is not evidence.
+
+---
+
+## 24. An implicit fee that fails in two opposite directions
+
+`signP2pkhTransaction` computes the fee as `inputs − outputs`, so the change
+amount *is* the fee budget. Nothing validates it, and it fails silently in both
+directions:
+
+- **Underpay.** 200 sat for a 242-byte transaction is 0.83 sat/byte. The node's
+  `estimatefee` and `relayfee` both report 1e-05 (1 sat/byte), and the node
+  rejects the whole transaction with `min relay fee not met (code 66)`. No txid,
+  no partial effect, nothing spent.
+- **Overpay into a negative fee.** Computing change as `input − fee` ignores
+  that `createTokenOutput` silently raises the token output to the dust
+  threshold (1000 sat here). The outputs then exceed the input and the "fee" is
+  **negative**: `fee: -678`.
+
+Neither failure names its cause. The node reports a fee problem or a token
+problem depending on which mistake you made.
+
+**Rule:** assert the fee is positive and above the node's minimum relay fee
+*before* signing, and compute it from the real output values rather than
+assuming what a helper wrote. An implicit invariant with no assertion is a
+latent loss, and a dust adjustment in a helper is exactly the kind of thing an
+arithmetic chain forgets.
+
+---
+
+---
+
 ## The through-line
 
 Every one of these is a case where the code **looked** like it was doing the
@@ -550,6 +630,8 @@ right thing:
 | signing before checking | signing |
 | a 69-byte scriptSig | an unsigned input |
 | `node script.mjs` | running the tool |
+| `token` passed and dropped | a complete output object |
+| change = input − fee | a fee calculation |
 
 The defence is the same in every case: **push the rule down the mechanism
 hierarchy** — type system → lint that fails CI → banned API → runtime check →
