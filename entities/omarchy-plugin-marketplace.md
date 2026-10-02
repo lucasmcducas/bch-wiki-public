@@ -7,7 +7,7 @@ sourceUrl: https://github.com/omacom/omarchy-plugin-marketplace/blob/main/README
 
 # Omarchy Plugin Marketplace
 
-> Verified against the live docs at `plugins.omarchy.org` on 2026-09-19. Companion to `entity.omarchy.md` (distro overview) and `syntheses/bch-bot-omarchy-monetization-plan.md` (the bch-bot distribution strategy).
+> Verified against the live docs at `plugins.omarchy.org` on 2026-09-19. The install-commands section was back-ported from the private vault on 2026-10-01 and re-verified against the live omarchy install (`/usr/share/omarchy/bin/omarchy-plugin-*`): every command and every flag listed exists, and the folder layout matches a real installed plugin. Companion to `entity.omarchy.md` (distro overview) and `syntheses/bch-bot-omarchy-monetization-plan.md` (the bch-bot distribution strategy).
 
 ## What it is
 
@@ -62,6 +62,30 @@ Source: an actual first-party plugin manifest at `github.com/omacom/omarchy/tree
 - **`activation`** — `"on-demand"` (default) | `"always"` | `"startup"`
 - **`<kind>`** — kind-specific config block (the `barWidget` object above)
 - **`preview.png`** at repo root — 50 MB / 40 MP limit, marketplace auto-crops to card/detail images
+
+## Plugin install commands (verified against omacom/omarchy source)
+
+User-side commands (after a plugin is published):
+
+| Command | What it does |
+|---|---|
+| `omarchy plugin add <git-url> [--enable] [--yes]` | Clone + validate + enable the plugin (`install` is an alias for `add`) |
+| `omarchy plugin clone <source-id>` | Clone a built-in plugin into your config (or copy a published plugin's source for editing) |
+| `omarchy plugin validate <path>` | Run the shell's manifest schema checks against the plugin folder |
+| `omarchy plugin enable <id> [--section left\|center\|right] [--index N]` | Enable a previously cloned plugin |
+| `omarchy plugin disable <id>` | Disable without removing |
+| `omarchy plugin remove <id>` | Remove the plugin folder |
+| `omarchy plugin list` | List installed plugins |
+| `omarchy plugin update <id>` | Update a plugin to the latest commit |
+| `omarchy plugin catalog` | List plugins available in the marketplace catalog |
+| `omarchy-shell shell listPlugins` | List plugins currently enabled in the shell |
+| `qmllint *.qml` | Lint QML files (ships with `qtdeclarative5-dev-tools`) |
+
+Verified against the script source at `github.com/omacom/omarchy/blob/main/bin/omarchy-plugin-{add,enable,validate,clone,...}` on 2026-09-28.
+
+Plugin folder layout after install:
+- `~/.config/omarchy/plugins/<manifest-id>/manifest.json`
+- `~/.config/omarchy/plugins/<manifest-id>/<qml files per kind>`
 
 ## Submission workflow
 
