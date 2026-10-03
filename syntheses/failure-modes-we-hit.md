@@ -399,6 +399,26 @@ socket and print the actual reply. In this investigation every correct answer
 came from a hand-rolled TLS+WebSocket session, and every wrong answer came from
 reading library files or trusting a return value.
 
+**Addendum (2026-10-02 code audit): the rule was learned and not applied.** The
+non-answer rule is now correct in one place — `lib/router.mjs:583-591`
+(`broadcastViaElectrum`) validates the returned txid shape and throws on anything
+else. It is **still missing in five scripts**, which test only
+`typeof result === 'string' && result.startsWith('Error')` and therefore print
+`"broadcast": true` when the node answered `{}`:
+
+```
+scripts/send.mjs:164          scripts/sweep.mjs:182
+scripts/send-token.mjs:285    scripts/add-liquidity.mjs:267
+scripts/round-trip.mjs:142
+```
+
+This is the §16 rule with the same shape as §5's "a fingerprint check must fail
+closed": **the lesson landed in the module that was written last and never
+propagated to the four that call the same RPC.** A rule enforced in one file is
+not enforced in the codebase. See
+[`../security/key-custody-and-oracle.md`](../security/key-custody-and-oracle.md)
+§5.
+
 ---
 
 ## 17. `request` is variadic — nesting the params array silently breaks a call

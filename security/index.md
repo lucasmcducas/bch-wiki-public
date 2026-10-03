@@ -22,8 +22,19 @@ sourceUrl: internal/synthesis
 | [`cashtokens.md`](cashtokens.md) | Commitment formats (category vs commitment), minting/smelting covenant primitives, transaction replay risks, token indexer trust assumptions, P2SH-32 limitations, Cauldron-specific risks, libauth @cashlab/* patterns | Subagent 4 |
 | [`wallet-key-storage.md`](wallet-key-storage.md) | **What four production BCH wallets actually do at rest**, read from source: KDF, cipher, salt and file layout for Cashonize, Selene, Paytaca and Electron Cash — plus the platform shims that silently disable encryption | Subagent (2026-10-01) |
 | [`dex-swap-integration.md`](dex-swap-integration.md) | **Integrating a wallet with a CashTokens DEX**: the operator-signing problem, the router's 10 bps fee output and build safety gate, CPMM DAG slippage semantics, the client's pre-signing verification checklist | Subagent (2026-10-01) |
+| [`pre-signing-invariant.md`](pre-signing-invariant.md) | **What stands between the router and a signature, and where it is not standing at all**: `send.mjs` and `round-trip.mjs` dead on a missing import, the swap gate that verifies *where* money goes but never *how much*, dry runs that burn change addresses, and the CI shape that lets all of it stay green | Code audit (2026-10-02) |
+| [`key-custody-and-oracle.md`](key-custody-and-oracle.md) | **Custody and oracle-layer findings from the live code**: no key zeroisation, unbounded derivation, a fabricated token category, unenforced CashTokens amount bounds, single-node trust with no quorum, a duplicated libauth, and the `encrypt-wallet` backup that undoes its own remediation | Code audit (2026-10-02) |
 
-**Total: ~1,192 lines / ~8,000 words across the original 4 reference docs, plus 2 new pages from the 2026-10-01 production-wallet audit.**
+**Total: ~1,192 lines / ~8,000 words across the original 4 reference docs, plus 2 new pages from the 2026-10-01 production-wallet audit and 2 from the 2026-10-02 live-code audit.**
+
+> **Updated 2026-10-02:** two pages added from a read-only audit of the live
+> `~/bch-src` tree at git `d63bda9`. Headline results, in plain terms: `bch-bot send`
+> and `bch-bot round-trip` **do not run at all** (they call two functions they never
+> imported); the swap gate correctly refuses a redirected output but **passes an
+> under-delivery** — the router can promise 36,141 and pay 1 base unit; and a `{}`
+> response from `blockchain.transaction.broadcast` is still reported as a success in
+> five scripts. Full test suite: **433 assertions, 0 failures** — which is the
+> point of the first new page.
 
 ## Executive summary (cross-cutting findings)
 
@@ -53,6 +64,32 @@ If you read nothing else, read these:
 
 12. **No public CVE exists for any production BCH wallet — do not read that as a clean bill of health.** Cashonize maintains an honest `security-considerations.md` and explicitly scopes plaintext seed storage *out* of its vulnerability programme. Documented risk is the dominant failure mode in this ecosystem, not undisclosed vulnerabilities.
 
+> **Correction (2026-10-02).** Executive-summary point 1 and the checklist in
+> [`dex-swap-integration.md`](dex-swap-integration.md) state that a token-bearing
+> input **must** carry `SIGHASH_UTXOS` (0x61), and that omitting it "is rejected by
+> the network with `mandatory-script-verify-flag-failed`". **That overstates the
+> spec.** CHIP-2022-02 says the encoded token prefix is included in the signing
+> serialization for *all* signing serialization types and *"does not require a
+> signing serialization type/flag"*; `SIGHASH_UTXOS` is a security
+> **recommendation** (*"wallets **should** enable SIGHASH_UTXOS when
+> participating in multi-entity transactions"*), not a validity requirement.
+>
+> The bch-bot code is correct on both of its paths and does not need changing:
+> `signP2pkhTransaction` uses 0x41 for all P2PKH inputs including token-bearing
+> ones (`lib/sign.mjs:67`), while `signExternalTransaction` adds the utxos bit for
+> router swaps (`lib/sign.mjs:284-286`). So the correction is to the wiki's
+> wording, not to the wallet. The `mandatory-script-verify-flag-failed` claim
+> should be read as the *actual* failure mode of the preimage bugs in
+> [`../references/bch-signing-and-verification.md`](../references/bch-signing-and-verification.md)
+> — missing prevouts, a numeric field in a byte position — which is a real and
+> separate class.
+
+13. **A green test suite is not evidence a command works.** The 2026-10-02 live-code audit found `send.mjs` and `round-trip.mjs` calling two functions they never imported — so both commands die with `ReferenceError` before touching the network. 433 assertions passed, lint reported clean, and the primary BCH send path could not execute. The cause: `test-send-amount.mjs` re-implements the amount rule instead of importing `send.mjs`, and the lint only checks the *inverse* (imported but unused). See [`pre-signing-invariant.md`](pre-signing-invariant.md).
+
+14. **Ownership checks are not amount checks.** The swap gate byte-compares every output against the addresses we supplied, which correctly catches output redirection. It never compares the *value* of the output paying our own receive address against what the router reported, so a router that promises 36,141 and pays 1 base unit passes every gate. Verified by running the project's own gate against hand-built transactions. See [`pre-signing-invariant.md`](pre-signing-invariant.md) §2.
+
+15. **The key-storage posture is sound; the oracle layer is not.** The mainnet wallet directory is `0700` with both files `0600`, and no seed or private key can reach a log or an error message. Against that: one Electrum node is the sole source of truth with no cross-check, and a `{}` response from `blockchain.transaction.broadcast` is still reported as `"broadcast": true` in five scripts — a documented bug class that was fixed in `lib/router.mjs` and never applied to its siblings. See [`key-custody-and-oracle.md`](key-custody-and-oracle.md).
+
 ## How to use this KB
 
 - **Before a security audit:** read all six docs end-to-end (~45 min). Each doc cites primary sources (BIPs, BCHN release notes, CashScript specs, wallet source files) so you can verify claims.
@@ -62,6 +99,7 @@ If you read nothing else, read these:
 - **When debugging a stuck transaction:** start with `utxo-and-mempool.md` (dust policy + unconfirmed-parent gotcha).
 - **When adding a new CashTokens operation:** start with `cashtokens.md` (commitment format + indexer trust).
 - **When changing the sighash flag or signing template:** start with `script-and-signing.md` (0x41 vs 0x61).
+- **When auditing or hardening the bot's own code (2026-10-02):** start with `pre-signing-invariant.md` — it covers the dead commands, the unverified receive amount, and the dry-run state mutation that the other six docs do not. `key-custody-and-oracle.md` covers custody, the untrusted-node layer, and supply chain.
 
 ## What this KB is NOT
 

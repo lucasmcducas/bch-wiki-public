@@ -96,6 +96,7 @@ Everything below is the client's job, and none of it is delegated to the router.
 - **Fee outputs.** Every extra output, its value, and its recipient. Compare against what the build reported as charged.
 - **Slippage floor.** If you set `min_output`, confirm `expected_output >= min_output` yourself before signing.
 - **Quote-vs-build.** If you quoted first, confirm the built `expected_output` still matches. The router re-routes on every build, so a quote is a *reference*, not a commitment.
+- **Recipient output *amount*, not just address.** Confirm the output paying your receive address carries the amount the build reported. The bch-bot audit of 2026-10-02 found this item was **not implemented**: `verifyTransactionOutputs` byte-compares locking scripts (which correctly catches redirection) but never compares the *value* of an output that is already ours, so a router that promises 36,141 and pays 1 base unit passes every gate. Verified by running the project's own gate against hand-built transactions. See [`pre-signing-invariant.md`](pre-signing-invariant.md) §2 for the reproduction and the fix shape.
 - **Non-empty, well-formed input set.** A build that names zero inputs for you to sign is not a swap you should sign.
 
 **Signing itself:**
@@ -159,6 +160,19 @@ The pool address is deterministically tied to the mnemonic like any other addres
 - **Pool state comes from an indexer.** Discovering which pools exist and what they hold is a Rostrum/indexer query. An indexer that lies about pool contents produces a quote that cannot fill — the transaction fails rather than silently mispricing, which is the safe failure mode, but it means pool availability is only as trustworthy as the indexer you queried.
 
 ## What's not solved
+
+> **Addendum, 2026-10-02 (live-code audit).** Two items in the "auditability" list
+> above are now concrete rather than theoretical, and one is worse than "cannot be
+> checked". A hostile router can pass every local check by **under-delivering
+> rather than redirecting** — reporting the right `expected_output`, satisfying
+> `min_output` in the reported figure, and paying a near-zero amount to your real
+> receive address. Ownership is verified; **amount is not**. Separately, a `{}`
+> response to `blockchain.transaction.broadcast` is still logged as
+> `"broadcast": true` in five of the bot's scripts — the same non-answer the
+> `failure-modes-we-hit.md` §16 catalogue records, fixed in `lib/router.mjs` and
+> never applied to its siblings. Both are documented in
+> [`pre-signing-invariant.md`](pre-signing-invariant.md) and
+> [`key-custody-and-oracle.md`](key-custody-and-oracle.md).
 
 - **No atomic swap.** A trade is a single transaction whose validity is enforced by the covenant. There is no hash-time-locked fallback, so the only recovery from a dropped trade is that the pool UTXO is unspent and your inputs are yours again — which is a property of the DAG model, not a refund mechanism with a deadline.
 - **Miner censorship is unresolved.** "No front-running" is a structural property. "A miner will include your transaction" is not, and the dropped-cascade is explicitly documented as a real outcome.
