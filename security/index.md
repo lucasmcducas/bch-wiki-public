@@ -103,19 +103,27 @@ If you read nothing else, read these:
     the transaction is structurally a valid Cauldron swap and the fault is not in
     the wallet.
 
-    **Final resolution — cause found.** The node's raw error, read off the wire
-    rather than through the client library, is
-    `Call 'sendrawtransaction' to full node failed: Missing inputs`. All **13
-    pool UTXOs are already spent**; the wallet's own two are unspent at h968967
-    and h971038. A route rebuilt seconds later spends the same dead parent, and
-    `route.quote` exposes no pool-selection parameter, so a wallet cannot steer
-    around pools whose outputs are gone.
+    **Final resolution — three defects in our own gate**, not a router fault
+    and not a covenant-support gap. The node's raw error is
+    `Call 'sendrawtransaction' to full node failed: Missing inputs`, and every
+    pool position really was consumed. But the pre-signing gate had printed
+    `pool inputs verified unspent (12/12)` on every attempt because:
 
-    Two client traps hid this for hours. `@electrum-cash/network` collapses the
-    JSON-RPC error into `{}`, so a real rejection looks like a silent one. And a
-    `listunspent` entry carries `outpoint_hash` as the byte-*reversed* `tx_hash`,
-    so matching the wrong field reports every coin as spent. **Read the frame by
-    hand when the answer matters.** See
+    1. it asked whether the **covenant lock** held any live coin rather than
+       whether **this outpoint** was live — a re-created position keeps the
+       former true forever;
+    2. it fetched parents through `connect(w.network)`, a Fulcrum node that
+       does not index p2sh32, so nothing was readable in the first place;
+    3. its all-negative branch was commented as a transport fault and allowed
+       the broadcast to proceed — exempting exactly the drained-route case.
+
+    The swap now refuses in ~38s instead of signing and losing the broadcast.
+    See [`../references/gates-that-pass-when-they-should-fail.md`](../references/gates-that-pass-when-they-should-fail.md).
+
+    A fourth trap made the diagnosis slow rather than wrong:
+    `@electrum-cash/network` collapses the JSON-RPC error into `{}`, so a real
+    rejection looks like a silent no-answer. **Read the frame by hand when the
+    answer matters.** See
     [`../references/cauldron-k-invariant.md`](../references/cauldron-k-invariant.md).
 
     Rebuilding on a stale rejection is still correct practice — identical bytes
