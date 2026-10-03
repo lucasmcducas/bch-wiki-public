@@ -51,6 +51,13 @@ instead of a position reported success on a dead route. The pages here are
 mostly about that class of problem, because it is the part that is genuinely
 hard to get right and the part that generalises past swaps.
 
+## Signing in the app: WizardConnect
+
+The browser is a UI, not the signer. `app.cauldron.quest` speaks
+[WizardConnect](../wizardconnect/index.md), which lets a wallet on another
+machine sign the transaction the app builds — our key, our verification
+gates, the working router's route.
+
 ## Trading today: `bch-bot swap-open`
 
 The in-wallet swap path builds a correct transaction and cannot get it accepted,
