@@ -632,6 +632,64 @@ wrote rather than what you asked for.
 
 ---
 
+## 25. A verification gate that checked direction but not magnitude
+
+`verifyTransactionOutputs` byte-compared every output against the wallet's own
+addresses. That correctly catches **redirection** — an output paying someone
+else. It never compared the **value** of an output it had already proven ours.
+
+A router quoting 36,141 and building an output paying our own address **1 base
+unit** passes every existing gate: destination genuinely ours, pool count matches,
+no foreign token category. The wallet signs it and receives nothing.
+
+> Ownership answers *"is my money going somewhere I did not agree to?"* It cannot
+> answer *"is my money arriving short?"* Different questions; only the second
+> needs the amount.
+
+Fixed with `expectedReceiveAmount` + `minReceiveAmount`, checked against the
+quote **and** the user's `--min-output` floor, so the enforced bound is the one
+the user consented to.
+
+**And the amount is not always the sat value.** A CashToken output pays
+`valueSatoshis: 1000` — the dust floor — while carrying 182 PUSD in its prefix. My
+first fix compared sat values and rejected every *correct* token swap. The check
+must read `token.amount` for token outputs.
+
+**Rule:** a gate that proves *where* must not be described as proving *how much*.
+Enumerate what your check does not establish, and ask which of those is worth
+money to the counterparty you are trusting.
+
+---
+
+## 26. A stale-pool check that had never once run
+
+Three bugs stacked, all in the same pre-signing check, all silent:
+
+1. `request('blockchain.transaction.get', [txid, false])` — the client's `request`
+   is **variadic**, so the array nested, the node answered `{}`, and `{}` is not an
+   error string. Every pool input read "parent unknown" and the check became a
+   no-op.
+2. A **hand-rolled transaction walk** drifted on a 10,851-byte 57-in/56-out
+   parent, returning the *same wrong locking script* for vout 4, 5 and 32 — the
+   signature of a misaligned parse. It failed silently: the wrong lock still
+   hashes to a valid scripthash, and a node asked about a script it does not
+   index answers honestly with an empty set.
+3. **A single node's empty answer was read as proof of spend.** Fulcrum does not
+   index p2sh32 covenants: across 13 live pools, Rostrum saw 1–60 unspent each
+   and Fulcrum saw none — 13 of 13 disagreed. Treating that as "spent" would
+   refuse a valid swap.
+
+Result: a swap passed every gate, was signed, and was **rejected at broadcast**
+with `Missing inputs` because the pools went stale inside the run. Correct
+response is to re-quote and rebuild, never to resubmit identical bytes.
+
+**Rule:** a check that has never fired is not a check. Prove it fires by making it
+fail on purpose — reintroduce the bug, confirm the test goes red, then restore.
+And **verify your parser against a reference implementation before trusting it**;
+`decodeTransactionBCH` was already imported one line above the hand-rolled walk.
+
+---
+
 ## The through-line
 
 Every one of these is a case where the code **looked** like it was doing the
@@ -660,6 +718,8 @@ right thing:
 | token fields named per server | a token balance |
 | change = input − fee | a fee calculation |
 | `BigInt("0.10")` on a display amount | a token send |
+| `request(m, [a, b])` on a variadic client | a safety check |
+| a fixed 20-address gap limit | a balance |
 
 The defence is the same in every case: **push the rule down the mechanism
 hierarchy** — type system → lint that fails CI → banned API → runtime check →

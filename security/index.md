@@ -64,6 +64,31 @@ If you read nothing else, read these:
 
 12. **No public CVE exists for any production BCH wallet — do not read that as a clean bill of health.** Cashonize maintains an honest `security-considerations.md` and explicitly scopes plaintext seed storage *out* of its vulnerability programme. Documented risk is the dominant failure mode in this ecosystem, not undisclosed vulnerabilities.
 
+13. **A Cauldron swap's pool state is contested, so `Missing inputs` is a normal
+    outcome rather than a defect — and it cannot be fixed by re-broadcasting.**
+    Pool UTXOs are shared: competing swaps consume the same inputs, and ABC raises
+    `Missing inputs` when an input is unknown *or already spent* (never for a script
+    or signature problem — see [`utxo-and-mempool.md`](utxo-and-mempool.md)). A
+    swap observed on 2026-10-02 passed every local gate — quote matched build, 2/15
+    outputs ours, 13/13 pool inputs verified unspent across two independent nodes —
+    and was still rejected at broadcast, because the pools went stale inside the
+    same run. The only correct response is to rebuild against fresh pool state;
+    resubmitting identical bytes cannot succeed. Both broadcast paths failed on
+    that attempt (Electrum with `Missing inputs`, the Cauldron HTTP endpoint with
+    `fetch failed`), so a swap needs a retry loop keyed to re-quoting, not a single
+    attempt.
+
+14. **Two node implementations disagree about the same UTXO, and the empty answer
+    is the dangerous one.** Fulcrum does not index p2sh32 covenant scripts: across
+    all 13 pool covenants of a live quote, `rostrum.cauldron.quest` reported 1–60
+    unspent outputs each (9M–420M sat confirmed) while `cashnode.bch.ninja`
+    reported **0 unspent and 0 confirmed for every one** — 13 of 13 disagreed.
+    Reading a single node's empty answer as proof of spend would refuse a
+    perfectly valid swap. The rule generalises past covenants: **a node returning
+    nothing for a script it may not index is "I cannot see this", not "this does
+    not exist".** Require agreement from two independent servers before concluding
+    a UTXO is gone, and treat anything else as inconclusive.
+
 > **Correction (2026-10-02).** Executive-summary point 1 and the checklist in
 > [`dex-swap-integration.md`](dex-swap-integration.md) state that a token-bearing
 > input **must** carry `SIGHASH_UTXOS` (0x61), and that omitting it "is rejected by

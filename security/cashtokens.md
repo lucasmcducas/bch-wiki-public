@@ -313,3 +313,59 @@ If a future version of Rostrum starts returning pubkeys directly, `generatePoolV
 ---
 
 *Authored by security-research subagent, lens: CashTokens security. Cross-references `reference.security.utxo-and-mempool` (sender-side) and `entity.cashscript` (compiler/fingerprint). Word count: ~2,400.*
+
+
+---
+
+## Addendum: the real output format, and two node implementations (2026-10-02)
+
+### The output layout, read off a node-accepted transaction
+
+Decoded from a confirmed mainnet ROACH output (100 base units), not from the spec
+and not from memory:
+
+```
+<35-byte token prefix> <25-byte P2PKH>
+ef 53ff3501720c686780457d9affa6e60f552f5685bb6a768325f926a380ef2c8910 64  76a914…
+```
+
+- Marker is **`0xef`** (`PREFIX_TOKEN`) — the script's first byte, **not**
+  `OP_RETURN` (0x6a). My first hypothesis was wrong about this.
+- A 34-byte commitment, then the amount as a **CompactSize varint** (`64` = 100),
+  then the locking bytecode. The prefix is **variable length**: the same shape
+  with 206,636,482 units encodes it in 4 bytes (`fec205510c`).
+- The prefix does **not** contain the category id in clear, and does not vary
+  with the destination.
+
+`token_bitfield` per CHIP-2022-02 `PREFIX_TOKEN`: high nibble is
+`prefix_structure` (0x80 RESERVED, 0x40 HAS_COMMITMENT_LENGTH, 0x20 HAS_NFT,
+0x10 HAS_AMOUNT), low nibble is the NFT capability (0 immutable, 1 mutable,
+2 minting, >2 reserved). A real ROACH UTXO reports `16` = HAS_AMOUNT only.
+
+**libauth encodes all of this correctly.** I asserted in this wiki that
+`outputToLibauth` dropped the `token` field and produced a bare P2PKH; that was
+wrong, and a test now pins the generated output **byte-for-byte** against the real
+script above. The `bad-txns-vout-tokenprefix (code 16)` rejection was a *fee* bug
+in disguise. A transaction rejected for one field is not evidence about a
+different field.
+
+### `listunspent` names token fields differently per server
+
+| Server | Fields on `blockchain.scripthash.listunspent` |
+|---|---|
+| `cashnode.bch.ninja` (Fulcrum) | **none** |
+| `rostrum.cauldron.quest` (Rostrum) | `has_token`, `token_id`, `token_amount`, `token_bitfield` |
+
+Every consumer in the bch-bot codebase read `utxo.token_data.{amount,category}`.
+Against a Rostrum response they all read `undefined`, so **the wallet reported
+zero tokens while holding 2 confirmed ROACH.** Normalise at the network boundary
+rather than teaching every call site about field-name variants.
+
+### Amount bounds belong at construction, and fail closed
+
+`createTokenOutput` / `createNftOutput` passed amounts and category ids straight
+to libauth's encoder. `0`, negative, and 2^100 either travelled into the encoder
+or threw a bare `BigInt` error naming neither the token nor the bound. Validate
+where the intent is still known: FT amount `1..0xffffffffffffff7f`, category
+exactly 64 hex chars, commitment hex and ≤ 40 bytes, capability one of
+none/mutable/minting.

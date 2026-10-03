@@ -192,3 +192,80 @@ The pool address is deterministically tied to the mnemonic like any other addres
 - Broadcast API: <https://broadcast.cauldron.quest/broadcast>
 - Cauldron fee arithmetic on-chain: `../sources/cashlab-cauldron.md` (`packages/cauldron/src/util.ts`, `calcTradeFee`)
 - bch-bot router client: `lib/router.mjs` (`verifyBuildAgainstQuote`, `min_output` side check, broadcast error handling)
+
+
+---
+
+## Addendum: what a live swap actually did (2026-10-02)
+
+Everything above is design review. This is what happened when a real swap was
+built and broadcast, and it corrects two assumptions.
+
+### The gate verified *where* value went, never *how much*
+
+`verifyTransactionOutputs` byte-compares every output against our addresses, which
+correctly catches **redirection**. It did not compare the **value** of an output
+already proven ours. A router that quotes 36,141 and builds an output paying our
+own address **1 base unit** passes every existing gate: the destination is
+genuinely ours, the pool count matches, no token category is wrong. The user signs
+it and receives nothing.
+
+> Ownership answers *"is my money going somewhere I did not agree to?"* It cannot
+> answer *"is my money arriving short?"* Those are different questions, and only
+> the second one needs the amount.
+
+Fixed with `expectedReceiveAmount` + `minReceiveAmount`, enforced against the
+amount the **quote** promised and the floor the **user** set via `--min-output`.
+The bound enforced is therefore the one the user actually consented to.
+
+**A CashToken output's amount is not its sat value.** A PUSD output pays
+`valueSatoshis: 1000` — the dust floor every token output is raised to — while
+carrying 182 PUSD in its `0xef` token prefix. Comparing sat values against the
+quote rejected every *correct* token swap. The check must read `token.amount` for
+token outputs and `valueSatoshis` only for plain BCH. Verified against a live
+BCH → PUSD build: `valueSatoshis 1000n`, `token.amount 182n`, quote said 182.
+
+### The stale-pool check had never run, and was silently disabled
+
+Three separate bugs, found in sequence, all in the pre-signing pool check:
+
+1. **`request(method, [candidate, false])`** — `@electrum-cash/network`'s `request`
+   is *variadic*. Passing an array nests it, the node answers `{}`, and
+   `{}` is not an error string — so all 13 pool inputs read "parent unknown" and
+   the check degraded to a no-op. `request(m, a, b)`, never `request(m, [a, b])`.
+2. **A hand-rolled transaction walk.** The pool parent is 10,851 bytes with 57
+   inputs and 56 outputs; hand-computed byte offsets drifted and returned the
+   **same wrong locking script for vout 4, 5 and 32**, having slipped inside a
+   CashToken prefix. Identical wrong bytes for different indices is the signature
+   of a misaligned parse. It failed *silently*: the wrong lock still hashes to a
+   valid scripthash, and a node asked about a script it does not index answers
+   honestly with an empty set. All 13 live pools came back "already spent". Use
+   `decodeTransactionBCH`, already imported for the unsigned transaction.
+3. **A single node's empty answer was read as proof of spend** — see executive
+   point 14. Now `scriptHasUnspent()` returns `unspent | spent | inconclusive`,
+   and `spent` requires **two independent nodes** to agree.
+
+After all three, a live quote reported `pool inputs verified unspent (13/13)` —
+the first time the check had ever actually run.
+
+### Sign the chain the address belongs to
+
+`swap.mjs` derived input keys with `change=0` unconditionally, so a change-chain
+UTXO was signed with the **receiving**-chain key at the same index (`/0/19` not
+`/1/19` — verified different keys and different addresses). The signature fails to
+validate and the rejection reads like a malformed transaction, not a wrong key.
+
+This stayed hidden by coincidence, not design: the funding scan reached change
+index 19 while `change_index` was 40, so every change UTXO it could see happened
+to sit on the receiving chain. That stops being true the moment the gap closes.
+`lib/wallet.mjs` already exports `resolveAddressPath`, which resolves the full
+account/change/index path and **throws** when an address is in neither chain rather
+than guessing.
+
+### A swap also needs a change address, and it must not be wasted
+
+A swap derives a change address at signing. Reserving it there means a *rejected*
+swap still consumes one. See
+[`../references/resource-safety-and-wall-clock.md`](../references/resource-safety-and-wall-clock.md)
+— one rejected swap advanced `change_index` by 5. The address must be committed
+only after the node returns a real 64-hex txid.
