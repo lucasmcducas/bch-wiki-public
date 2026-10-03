@@ -326,8 +326,18 @@ checking them is two queries rather than thirteen.
 This is the one durable result of the 2026-10-02 swap investigation, and it came
 from decoding the transaction rather than from reading error messages.
 
-**What the investigation did not establish:** the cause of the `Missing inputs`
-rejection. My probes for it were themselves broken — the same queries that
+**Update:** the specification has since been read, and the transaction is valid
+by both of its rules — see
+[`../references/cauldron-k-invariant.md`](../references/cauldron-k-invariant.md).
+The re-creation rule holds (`in[i] → out[i]`) and the k-invariant is conserved
+(aggregate ratio 1.000012, per-pool k never decreasing). The rejection therefore
+belongs to the broadcasting node. Notably, Riften's own docs direct wallets to
+broadcast through `broadcast.cauldron.quest/broadcast` and say a single-node
+broadcast is how double-spend conflicts start.
+
+**What the investigation originally did not establish:** the cause of the
+`Missing inputs` rejection — settled only by reading the spec rather than by
+probing nodes further. My probes for it were themselves broken — the same queries that
 reported pool parents as nonexistent also reported a *known-confirmed* wallet
 txid as nonexistent. See
 [`../syntheses/failure-modes-we-hit.md`](../syntheses/failure-modes-we-hit.md)

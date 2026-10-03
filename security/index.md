@@ -95,6 +95,18 @@ If you read nothing else, read these:
     *prevouts* the router selected, which are the router's responsibility, not
     ours.
 
+    **Resolved by reading the specification** (2026-10-02, later). Riften's docs
+    state two rules and the transaction satisfies both: the Cauldron contract is
+    re-created *in the same output index it was spent at*, and the constant
+    product holds (aggregate kOut/kIn = 1.000012, per-pool k never decreases). So
+    the transaction is structurally a valid Cauldron swap, and the rejection
+    belongs to the broadcasting node, not the wallet. Their docs also say to
+    broadcast via `broadcast.cauldron.quest/broadcast` and explicitly prefer it
+    over a single node: *"trades against the same pools chain on one another, so a
+    transaction that reaches only part of the network is how double-spend
+    conflicts start."* See
+    [`../references/cauldron-k-invariant.md`](../references/cauldron-k-invariant.md).
+
     Rebuilding on a stale rejection is still correct practice — identical bytes
     naming a spent input cannot succeed — but that is a general property of
     chain state, not an argument from an unestablished cause.
