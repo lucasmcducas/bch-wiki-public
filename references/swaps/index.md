@@ -51,6 +51,32 @@ instead of a position reported success on a dead route. The pages here are
 mostly about that class of problem, because it is the part that is genuinely
 hard to get right and the part that generalises past swaps.
 
+## Trading today: `bch-bot swap-open`
+
+The in-wallet swap path builds a correct transaction and cannot get it accepted,
+for the reason on the first page. So `bch-bot swap-open <sell> <buy>` opens the
+Cauldron app instead, which is what the reference wallet does:
+
+```
+bch-bot swap-open BCH pusd
+  opened https://app.cauldron.quest/swap/2469acc5afa4b10c...
+  selling    BCH
+  receiving  PUSD (2469acc5afa4b10c..)
+```
+
+Two limits, both in `--help` rather than discovered later:
+
+- **BCH cannot be a destination.** The app's URL is keyed on a CashToken
+  category, and BCH is the native asset with no category, so there is no page to
+  open. Selling a token for BCH means using the app directly. Cauldron trades the
+  pair both ways, so this is a limit of the URL scheme, not the protocol.
+- **The amount is typed in the browser.** The app reads no query parameters
+  beyond the category in the path.
+
+The browser signs. The command never touches a private key and never moves
+funds — which is the trade being made: the wallet stops being the signer for
+swaps specifically, in exchange for a path that works.
+
 ## The uncomfortable summary
 
 The investigation produced six explanations for one rejection. Five were wrong:
