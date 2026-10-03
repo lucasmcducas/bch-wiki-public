@@ -768,6 +768,66 @@ And when reporting a defect, name the check that established it — "I read
 
 ---
 
+## 28. A probe that reported "these transactions do not exist" — about confirmed ones too
+
+Chasing the swap's `Missing inputs`, I decoded the transaction and found the 13
+pool inputs resolve to only **two** parent transactions:
+
+    381179a50a23…02fd  →  v1, v3, v4, v5, v7, v10, v11, v12, v14, v15, v32, v35
+    5a34d4d75679…7686  →  v0
+
+A Cauldron swap spanning 13 pools is not 13 independent settlements. That is a
+real structural fact about the protocol, and it is the most useful thing this
+whole investigation produced.
+
+Then I asked a node whether those parents existed, and got:
+
+    RPC error (-32602 InvalidParams): No such mempool or blockchain transaction
+
+— for **both**. Which is a clean story: the router is handing out outpoints from
+transactions that do not exist on chain. I was about to write that down.
+
+**It was false.** The control was obvious and I did not run it: I repeated the
+identical query for a txid the wallet demonstrably holds — `ab90acba…`, confirmed
+at height 968967, printed by the repo's own `utxos.mjs`. It returned the same
+`{}` / error shape. **A probe that says a known-good thing does not exist is not
+measuring the chain; it is measuring itself.**
+
+Three separate client bugs produced false readings, and each looked like a fact
+about the network:
+
+| Call | What I passed | What the code needs |
+|---|---|---|
+| `blockchain.transaction.get` | `[txid, false]` | `txid, false` — `request` is **variadic** |
+| `blockchain.scripthash.listunspent` | `[sh, false]` | `sh` — one argument, no flag |
+| `get_confirmations` | anything | returns `{}` on these servers even for confirmed txs |
+
+That first row is the exact bug already catalogued in §26 — I reintroduced it in
+my own diagnostic while writing up its fix. The irony is not a joke; it is a
+measurement of how easy it is to be wrong here.
+
+**Rules:**
+
+- **Always run a control.** One input whose answer you already know, through the
+  same code path. A single control would have caught all three false readings and
+  saved an hour of confident nonsense. This is the cheapest possible check and the
+  one I skipped every time.
+- **`{}` is not an answer.** It is the documented symptom of a protocol-version
+  mismatch (`lib/network.mjs` says so at `PROTOCOL_VERSIONS`). An empty object
+  from a node means "I did not answer", never "no" and never "yes".
+- **Prefer the repo's own functions over ad-hoc clients.** `connect()`,
+  `listUnspent()`, `scripthashForAddress()` are known-good. Every bug above was
+  in code I wrote to *inspect* the system, not in the system.
+- **Resist the clean story.** "The router is handing us nonexistent outpoints" is
+  a tidy, publishable conclusion. Tidy conclusions are what you get when you stop
+  one check short of the ugly truth.
+
+**Status: the actual cause of the `Missing inputs` remains undetermined.** The
+wallet is intact throughout — 0.01659311 BCH, 6 UTXOs, 2 ROACH, `change_index`
+39 — and no funds moved at any point.
+
+---
+
 ## The through-line
 
 Every one of these is a case where the code **looked** like it was doing the
@@ -800,6 +860,7 @@ right thing:
 | a fixed 20-address gap limit | a balance |
 | an unestablished cause | a design document |
 | the wrong field name | a defect report |
+| a probe with no control | a conclusion |
 
 The defence is the same in every case: **push the rule down the mechanism
 hierarchy** — type system → lint that fails CI → banned API → runtime check →

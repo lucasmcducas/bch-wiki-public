@@ -305,3 +305,31 @@ distinguished them.
 error for an input that is unknown and for an input that is already spent. Before
 writing a cause into a design document, require a fact that could only be true
 under that cause. For contention that fact is price movement across attempts.
+
+
+---
+
+## Structural finding: 13 pools is two transactions, not thirteen
+
+Decoding the signed swap's outpoints:
+
+    381179a50a23…02fd  →  v1, v3, v4, v5, v7, v10, v11, v12, v14, v15, v32, v35
+    5a34d4d75679…7686  →  v0
+
+A quote spanning 13 pools consumes outputs from **two** parent transactions. A
+swap is not 13 independent settlements that can each go stale independently —
+there are only two spendable parents, and a single conflicting spend of either one
+invalidates the whole route. That reframes contention risk: it is not "any of 13
+pools may be taken", it is "two specific transactions must be unspent", and
+checking them is two queries rather than thirteen.
+
+This is the one durable result of the 2026-10-02 swap investigation, and it came
+from decoding the transaction rather than from reading error messages.
+
+**What the investigation did not establish:** the cause of the `Missing inputs`
+rejection. My probes for it were themselves broken — the same queries that
+reported pool parents as nonexistent also reported a *known-confirmed* wallet
+txid as nonexistent. See
+[`../syntheses/failure-modes-we-hit.md`](../syntheses/failure-modes-we-hit.md)
+§28 for the three client bugs and why a control is mandatory. Treat any earlier
+claim about the rejection's cause as unverified.
