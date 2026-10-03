@@ -193,7 +193,7 @@ everyone to bypass it.
 
 ## Related
 
-- [`./cauldron-k-invariant.md`](./cauldron-k-invariant.md) — the two rules a
+- [`./cauldron-k-invariant.md`](../swaps/cauldron-k-invariant.md) — the two rules a
   valid Cauldron swap must satisfy, and the byte-order trap
-- [`../security/dex-swap-integration.md`](../security/dex-swap-integration.md) —
+- [`../security/dex-swap-integration.md`](../../security/dex-swap-integration.md) —
   the live-swap addendum

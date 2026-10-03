@@ -118,13 +118,13 @@ If you read nothing else, read these:
        the broadcast to proceed — exempting exactly the drained-route case.
 
     The swap now refuses in ~38s instead of signing and losing the broadcast.
-    See [`../references/gates-that-pass-when-they-should-fail.md`](../references/gates-that-pass-when-they-should-fail.md).
+    See [`../references/gates-that-pass-when-they-should-fail.md`](../references/swaps/gates-that-pass-when-they-should-fail.md).
 
     A fourth trap made the diagnosis slow rather than wrong:
     `@electrum-cash/network` collapses the JSON-RPC error into `{}`, so a real
     rejection looks like a silent no-answer. **Read the frame by hand when the
     answer matters.** See
-    [`../references/cauldron-k-invariant.md`](../references/cauldron-k-invariant.md).
+    [`../references/cauldron-k-invariant.md`](../references/swaps/cauldron-k-invariant.md).
 
     Rebuilding on a stale rejection is still correct practice — identical bytes
     naming a spent input cannot succeed — but that is a general property of

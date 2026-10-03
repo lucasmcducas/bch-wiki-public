@@ -341,7 +341,7 @@ Two client traps hid this for hours: `@electrum-cash/network` collapses the
 JSON-RPC error into `{}`, making a real rejection look like a silent one; and a
 `listunspent` entry's `outpoint_hash` is the byte-*reversed* `tx_hash`, so
 matching the wrong field calls every coin spent. Full detail in
-[`../references/cauldron-k-invariant.md`](../references/cauldron-k-invariant.md);
+[`../references/cauldron-k-invariant.md`](../references/swaps/cauldron-k-invariant.md);
 pinned by `scripts/test-swap-prevout-liveness.mjs`. My probes for it were themselves broken — the same queries that
 reported pool parents as nonexistent also reported a *known-confirmed* wallet
 txid as nonexistent. See

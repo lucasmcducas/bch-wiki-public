@@ -201,7 +201,7 @@ Both are in the repo's code and both cost hours when violated:
 
 ## Related
 
-- [`../security/dex-swap-integration.md`](../security/dex-swap-integration.md) —
+- [`../security/dex-swap-integration.md`](../../security/dex-swap-integration.md) —
   the live-swap addendum and the pool-input structure
-- [`../syntheses/failure-modes-we-hit.md`](../syntheses/failure-modes-we-hit.md)
+- [`../syntheses/failure-modes-we-hit.md`](../../syntheses/failure-modes-we-hit.md)
   §28 — the probe that reported known-confirmed transactions as nonexistent

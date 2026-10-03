@@ -16,6 +16,7 @@ collaboration (see [`syntheses/bch-omarchy-collaboration-plan.md`](syntheses/bch
 |---|---|
 | `entities/` | Reference entries on BCH ecosystem projects (Cauldron DEX, libauth, PUSD, ROACH, etc.) |
 | `references/` | Topical reference docs (zero-conf security, economics primer, Omarchy research) |
+| `references/swaps/` | **Swaps on a CashTokens AMM** — how a Cauldron pool is really represented on-chain, the k-invariant a route must satisfy, and the class of bug where a safety check reports success on a dead route |
 | `sources/` | Raw source excerpts (release notes, official docs) |
 | `concepts/` | BCH concepts (CashTokens, Cash Stack, etc.) |
 | `security/` | BCH UTXO + wallet security knowledge base (6 docs) |
