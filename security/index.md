@@ -89,8 +89,9 @@ If you read nothing else, read these:
     next engineer's time.
 
     What is established, by decoding the transaction with `decodeTransactionBCH`:
-    **all 15 inputs carry a scriptSig** — 13 pre-signed by the pool operators
-    (sighash byte `0x7c`), ours at indices 13–14. The signing path is not the
+    **all 15 inputs carry a scriptSig** — 13 carry a signature-free 69-byte P2SH32 unlock
+    (`0x44` + the 68-byte redeem script — the `swap()` ABI takes no arguments),
+    ours at indices 13–14 are the only signed ones. The signing path is not the
     fault. A `Missing inputs` on a fully-signed transaction points at the
     *prevouts* the router selected, which are the router's responsibility, not
     ours.
@@ -99,12 +100,22 @@ If you read nothing else, read these:
     state two rules and the transaction satisfies both: the Cauldron contract is
     re-created *in the same output index it was spent at*, and the constant
     product holds (aggregate kOut/kIn = 1.000012, per-pool k never decreases). So
-    the transaction is structurally a valid Cauldron swap, and the rejection
-    belongs to the broadcasting node, not the wallet. Their docs also say to
-    broadcast via `broadcast.cauldron.quest/broadcast` and explicitly prefer it
-    over a single node: *"trades against the same pools chain on one another, so a
-    transaction that reaches only part of the network is how double-spend
-    conflicts start."* See
+    the transaction is structurally a valid Cauldron swap and the fault is not in
+    the wallet.
+
+    **Final resolution — cause found.** The node's raw error, read off the wire
+    rather than through the client library, is
+    `Call 'sendrawtransaction' to full node failed: Missing inputs`. All **13
+    pool UTXOs are already spent**; the wallet's own two are unspent at h968967
+    and h971038. A route rebuilt seconds later spends the same dead parent, and
+    `route.quote` exposes no pool-selection parameter, so a wallet cannot steer
+    around pools whose outputs are gone.
+
+    Two client traps hid this for hours. `@electrum-cash/network` collapses the
+    JSON-RPC error into `{}`, so a real rejection looks like a silent one. And a
+    `listunspent` entry carries `outpoint_hash` as the byte-*reversed* `tx_hash`,
+    so matching the wrong field reports every coin as spent. **Read the frame by
+    hand when the answer matters.** See
     [`../references/cauldron-k-invariant.md`](../references/cauldron-k-invariant.md).
 
     Rebuilding on a stale rejection is still correct practice — identical bytes

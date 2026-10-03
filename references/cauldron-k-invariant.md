@@ -107,11 +107,74 @@ wrong before loosening anything — and here the transaction was right.
 - The k-invariant is conserved in aggregate and non-decreasing per pool.
 - The transaction is structurally what a Cauldron swap must be.
 
-**Still not established:** why the node rejects it with `Missing inputs`. The
-transaction is valid by every rule the specification states. That points at the
-*node* rather than the wallet — a broadcasting node that cannot evaluate p2sh32
-covenants would report a covenant input as unusable rather than as a script
-failure, which is precisely the symptom.
+## The actual cause: the pool UTXOs are already spent
+
+Reading the raw JSON-RPC frame instead of the client library's return value
+gives the node's actual verdict:
+
+```
+broadcast <our tx>  ERROR code=-32000
+  "RPC error (-32602 InvalidParams): rejected by network; RPC error
+   (-32000 Other): Call 'sendrawtransaction' to full node failed: Missing inputs"
+
+broadcast "00"      ERROR -32603 "failed to parse tx"
+```
+
+Two different failures. **`Missing inputs` means the outpoint is absent from the
+UTXO set** — not a covenant-evaluation error, and not a parse error. The node
+parsed the transaction fine and passed it to the full node, which could not find
+the coins.
+
+The parent transactions all exist, so they are not unknown transactions. Their
+outputs are consumed:
+
+```
+in[ 0] v 4   spent / absent
+in[ 1] v 5   spent / absent
+...
+in[12] v 0   spent / absent
+in[13] v 0   UNSPENT (1000 sats, h968967)     <- ours
+in[14] v 0   UNSPENT (800000 sats, h971038)  <- ours
+```
+
+`h968967` matches what the wallet's own `utxos.mjs` reports — that agreement is
+the control that makes this reading trustworthy.
+
+**It is not a stale quote.** A route built seconds later (0.002 BCH, 12 pools)
+spends the same dead parent. The router is building through pools whose outputs
+are already gone, and `route.quote` accepts only `sell`/`buy`/`amount`/`side` —
+there is no pool-selection parameter, so a wallet cannot steer around it.
+
+### The client bug that made this invisible
+
+`blockchain.transaction.broadcast` appears to return `{}` for everything. It
+does not: **the client library collapses the JSON-RPC error object into an empty
+object.** The node was answering the whole time, and the error text was lost in
+the transport.
+
+I compounded it for an hour by treating `{}` from a garbage one-byte hex as proof
+the node was not evaluating anything. The two failures return the *same* `{}` at
+the library boundary while being completely different errors underneath.
+
+**Send the frame by hand when the answer matters.** `@electrum-cash/network`
+swallows the error; a raw `ws.send(JSON.stringify({jsonrpc, id, method,
+params}))` shows the code and message.
+
+### `outpoint_hash` is not `tx_hash`
+
+A `listunspent` entry carries both, and they differ — `outpoint_hash` is the
+byte-reversed form:
+
+```
+pos=0 val=1000   outpoint_hash=3d9592aeafe46bb8cc   tx_hash=ab90acba4e383b3cc4
+```
+
+Matching on the wrong field reports every coin as spent. I hit this and briefly
+concluded the wallet's own inputs were gone. Always match against **both**
+orderings, and confirm with a known-good `utxos.mjs` reading before believing a
+"spent" verdict.
+
+Pinned by `scripts/test-swap-prevout-liveness.mjs` (4/4).
 
 Riften's own guidance bears on this: the build response says to POST the signed
 transaction to `broadcast.cauldron.quest/broadcast` and prefers it over a single

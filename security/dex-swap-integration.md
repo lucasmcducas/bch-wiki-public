@@ -326,18 +326,23 @@ checking them is two queries rather than thirteen.
 This is the one durable result of the 2026-10-02 swap investigation, and it came
 from decoding the transaction rather than from reading error messages.
 
-**Update:** the specification has since been read, and the transaction is valid
-by both of its rules — see
-[`../references/cauldron-k-invariant.md`](../references/cauldron-k-invariant.md).
-The re-creation rule holds (`in[i] → out[i]`) and the k-invariant is conserved
-(aggregate ratio 1.000012, per-pool k never decreasing). The rejection therefore
-belongs to the broadcasting node. Notably, Riften's own docs direct wallets to
-broadcast through `broadcast.cauldron.quest/broadcast` and say a single-node
-broadcast is how double-spend conflicts start.
+**Update — cause found.** The transaction is valid by both of the protocol's
+rules (re-creation rule holds, k-invariant conserved at 1.000012), so this was
+never a wallet bug. The node's real error, read off the wire:
 
-**What the investigation originally did not establish:** the cause of the
-`Missing inputs` rejection — settled only by reading the spec rather than by
-probing nodes further. My probes for it were themselves broken — the same queries that
+> `Call 'sendrawtransaction' to full node failed: Missing inputs`
+
+All **13 pool UTXOs are already spent**; the wallet's own two are unspent at
+h968967 and h971038. A route rebuilt seconds later spends the same dead parent,
+and `route.quote` exposes no pool-selection parameter, so a wallet cannot steer
+around pools whose outputs are gone.
+
+Two client traps hid this for hours: `@electrum-cash/network` collapses the
+JSON-RPC error into `{}`, making a real rejection look like a silent one; and a
+`listunspent` entry's `outpoint_hash` is the byte-*reversed* `tx_hash`, so
+matching the wrong field calls every coin spent. Full detail in
+[`../references/cauldron-k-invariant.md`](../references/cauldron-k-invariant.md);
+pinned by `scripts/test-swap-prevout-liveness.mjs`. My probes for it were themselves broken — the same queries that
 reported pool parents as nonexistent also reported a *known-confirmed* wallet
 txid as nonexistent. See
 [`../syntheses/failure-modes-we-hit.md`](../syntheses/failure-modes-we-hit.md)
