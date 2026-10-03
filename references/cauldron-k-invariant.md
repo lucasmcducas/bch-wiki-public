@@ -160,19 +160,24 @@ the library boundary while being completely different errors underneath.
 swallows the error; a raw `ws.send(JSON.stringify({jsonrpc, id, method,
 params}))` shows the code and message.
 
-### `outpoint_hash` is not `tx_hash`
+### Byte order, which no field name will warn you about
 
-A `listunspent` entry carries both, and they differ — `outpoint_hash` is the
-byte-reversed form:
+The same txid comes back in **two orderings** depending on who computed it.
+libauth's `outpointTransactionHash` is wire order; Electrum's `listunspent`
+reports display order, which is the byte-reverse. Compare against both or every
+coin reads as spent — I hit this and briefly concluded the wallet's own inputs
+were gone.
 
 ```
-pos=0 val=1000   outpoint_hash=3d9592aeafe46bb8cc   tx_hash=ab90acba4e383b3cc4
+want (wire order)   : ab90acba4e383b3cc4…
+what listunspent has : tx_hash=ab90acba4e383b3cc4…   -> matches
+                        outpoint_hash=3d9592aeafe46bb8cc…  -> does not
 ```
 
-Matching on the wrong field reports every coin as spent. I hit this and briefly
-concluded the wallet's own inputs were gone. Always match against **both**
-orderings, and confirm with a known-good `utxos.mjs` reading before believing a
-"spent" verdict.
+I first misdiagnosed this as "`outpoint_hash` is a different value from
+`tx_hash`", which is wrong — they are the same txid in different encodings. The
+real fault was comparing only one ordering. Confirm any "everything is spent"
+verdict against a known-good `utxos.mjs` reading before believing it.
 
 Pinned by `scripts/test-swap-prevout-liveness.mjs` (4/4).
 
