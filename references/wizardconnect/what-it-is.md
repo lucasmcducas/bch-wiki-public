@@ -135,6 +135,39 @@ JSON.parse(json, (_k, v) => {
 cannot compute the sighash, and a wallet that signs without being able to
 verify what it is signing is not a wallet.
 
+## Where this is wired, and one thing it is not allowed to do
+
+The wallet side is built and reachable: `bch-bot wizardconnect pair <wiz-uri>`
+connects to `relay.riften.net`, publishes `wallet_ready`, and waits. Verified
+against the live relay.
+
+The approval decision is rendered, not asserted. There is deliberately **no
+`--yes` flag and no auto-approve path**, and the absence is the control — a flag
+would make "sign whatever a dapp asks" a one-token change away.
+
+The Omarchy panel has a Dapps view written and **deliberately not enabled**. The
+plugin's own `check-wallet-safety.sh` rejects it:
+
+```
+SAFETY: bch-bot wizardconnect is not part of the alpha surface
+SAFETY: the panel may only use read-only commands plus send and swap
+```
+
+The check's stated reason applies exactly:
+
+> sweep, stake and add-liquidity move value through paths with no preview step,
+> so they are not in the alpha's scope and must not appear.
+
+`wizardconnect` signs a dapp's transaction with no preview in the panel. It is
+the excluded class, and widening a safety allowlist is a decision for the wallet's
+owner rather than one to slip into a commit.
+
+That check is worth reading as a pattern rather than an obstacle. It encodes a
+semantic invariant in a language where literal greps cannot: it explicitly
+defends against `["sw" + "eep"]` defeating its own patterns, and concludes that
+text matching cannot enforce a capability in a dynamic language, so constrain the
+capability instead of describing the call.
+
 ## Related
 
 - [Derivations and the relay key](derivations-and-the-relay-key.md)
