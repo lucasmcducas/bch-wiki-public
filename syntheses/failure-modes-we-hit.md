@@ -525,57 +525,54 @@ is wrong.
 
 ---
 
-## 23. A token output with no token in it
+## 23. Token discovery that reports zero while holding tokens (and a claim I got wrong)
 
-`outputToLibauth` in `lib/sign.mjs` builds a CashToken output like this:
+`outputToLibauth` in `lib/sign.mjs` passes a `token` field straight through to
+libauth, and I read that as "libauth ignores it, so a token output is really a
+bare P2PKH script with no CashToken prefix." I wrote that into the wiki.
 
-```js
-export function outputToLibauth({ address, valueSatoshis, token }) {
-  return {
-    lockingBytecode: addressToLockingBytecode(address),   // plain P2PKH
-    valueSatoshis: BigInt(valueSatoshis),
-    token,                                                // passed and ignored
-  };
-}
-```
-
-libauth's `generateTransaction` accepts a ready-made `lockingBytecode`, so it
-never encodes the token: the `token` field travels alongside the output and is
-dropped. The result is a bare P2PKH output with **no CashToken prefix at all**,
-and the node rejects it with `bad-txns-vout-tokenprefix (code 16)`. The
-transaction is otherwise perfectly formed and correctly signed, which is what
-makes this expensive to diagnose: nothing in the logs is wrong except the
-outcome.
-
-This affects `send-token.mjs` too, not just a test harness. The token send path
-has never worked and cannot work until the prefix is prepended to the locking
-bytecode.
-
-**The real format, read off a live mainnet token output** (not from memory, not
-from the spec — decoded from a node-accepted transaction):
+**That claim was wrong, and the test that disproved it is worth more than the
+claim was.** Signing a token output through the project's own path produces
 
 ```
-<35-byte token prefix> <locking bytecode>
-ef 53ff3501720c686780457d9affa6e60f552f5685bb6a768325f926a380ef2c891064
-76a9146497169ae687839e67e7ea6313854f14c2d60ac988ac
-^^^^^^^^^^ 35 bytes                            ^^^^^^ P2PKH, 25 bytes
+ef53ff3501720c686780457d9affa6e60f552f5685bb6a768325f926a380ef2c8910 64 76a914…
 ```
 
-- The prefix is **prepended**, not appended, and not wrapped in `OP_RETURN` —
-  the script's first byte is `0xef`, not `0x6a`.
-- Two token outputs in the same transaction share a byte-identical 35-byte
-  prefix and differ only where their locking bytecode begins, so the prefix does
-  **not** carry the amount. Amount lives in the token accounting, not the script.
-- The 35-byte prefix is identical across outputs paying *different* addresses,
-  so it identifies the token, not the destination.
+which is **byte-identical** to a node-accepted mainnet ROACH output carrying 100
+base units. libauth encodes the prefix exactly as specified — a 34-byte token
+commitment after the `0xef` `PREFIX_TOKEN` marker, then the amount as a
+CompactSize, then the locking bytecode. `token` is consumed, not dropped.
 
-**Rule:** a constructor that accepts a field and passes it to a library that
-does not consume it produces a structurally valid object that is semantically
-empty. When a transaction is rejected for a field you set, decode the bytes you
-actually produced and compare them with a transaction the node accepted — a
-spec written from memory is not evidence.
+The `bad-txns-vout-tokenprefix (code 16)` rejection I attributed to this was
+actually a **fee** bug (section 24). A transaction rejected for one field is not
+evidence about a different field, and I let the proximity of the two guesses
+become a conclusion.
 
----
+**The real bug was one level down, in discovery.** `blockchain.scripthash.listunspent`
+names token fields differently per server:
+
+| Server | Token fields on `listunspent` |
+|---|---|
+| `cashnode.bch.ninja` (Fulcrum) | **none** |
+| `rostrum.cauldron.quest` (Rostrum) | `has_token`, `token_id`, `token_amount`, `token_bitfield` |
+
+Every consumer in the codebase read `utxo.token_data.{amount,category}`. Against
+a Rostrum response they all read `undefined`, so the wallet reported
+`token_categories_ft: 0` while **holding 2 confirmed ROACH** — and the Fulcrum
+node the wallet was configured to use could not have told it otherwise even with
+correct code. `sumFtBalances`, `utxoToTokenPrefix`, and `selectTokenUtxos` were
+all correct; they were being fed nothing.
+
+Fixed by normalising at the network boundary (`normaliseTokenData` +
+`listUnspent()`) rather than teaching 14 call sites about field-name variants,
+and by preferring the token-aware node in the mainnet server list.
+
+**Rule:** a function that forwards a field to a dependency is not evidence the
+dependency ignores it — sign one transaction and compare the bytes against a
+transaction the network accepted. And a *discovery* bug is invisible to any test
+that only exercises the thing you are trying to do: the send path was fine; the
+wallet simply could not find its own tokens. A wallet that reports zero for a
+balance you can see on-chain is the tell.
 
 ## 24. An implicit fee that fails in two opposite directions
 
@@ -595,11 +592,21 @@ directions:
 Neither failure names its cause. The node reports a fee problem or a token
 problem depending on which mistake you made.
 
+The same bug bit a second, larger time inside `send-token.mjs`. The token
+outputs each claim sats (the dust floor again, 1000 sat each) **and** the FT
+inputs carry sats of their own, but the change calculation was
+`bchTotal - estFee`, counting neither. A 0.10 ROACH send produced outputs
+exceeding inputs by **456 sat** — a negative fee, rejected with no clue. Sending
+0.10 required knowing that two separate sats-claiming outputs existed, one of
+them off-screen in a different code path.
+
 **Rule:** assert the fee is positive and above the node's minimum relay fee
 *before* signing, and compute it from the real output values rather than
 assuming what a helper wrote. An implicit invariant with no assertion is a
 latent loss, and a dust adjustment in a helper is exactly the kind of thing an
-arithmetic chain forgets.
+arithmetic chain forgets. Whenever a helper can silently *raise* a value —
+`createTokenOutput` bumping to the dust threshold — read back what it actually
+wrote rather than what you asked for.
 
 ---
 
@@ -630,8 +637,9 @@ right thing:
 | signing before checking | signing |
 | a 69-byte scriptSig | an unsigned input |
 | `node script.mjs` | running the tool |
-| `token` passed and dropped | a complete output object |
+| token fields named per server | a token balance |
 | change = input − fee | a fee calculation |
+| `BigInt("0.10")` on a display amount | a token send |
 
 The defence is the same in every case: **push the rule down the mechanism
 hierarchy** — type system → lint that fails CI → banned API → runtime check →
