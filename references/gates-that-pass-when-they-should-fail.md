@@ -157,6 +157,40 @@ the instrument was what failed.
 > not the thing it describes. A green check is a claim, not evidence — and a
 > check that has never been observed to fail has not been tested.
 
+## The rules are now encoded, not written down
+
+The three questions above were prose. Prose is the weakest layer of the
+mechanism hierarchy — an agent reads the surrounding code and copies that, so a
+documented rule loses to a stronger habit in the file next door. Two lints now
+fail CI, and each is scoped to exactly one question from this page.
+
+| Lint | Encodes | Fails on |
+|---|---|---|
+| `lint-check-questions.mjs` | *What question does this check ask?* | a function named as an exact check (`isUnspent`, `hasUnspentOutput`, `isValid`) with no txid/vout in scope |
+| `lint-covenant-node.mjs` | *Can this source return a positive?* | `connect()` on a covenant-aware path, where the node cannot index p2sh32 |
+| `test-lints-catch-their-own-bugs.mjs` | — | either lint failing to catch the defect it was written for |
+
+That last one exists because of how this went. **Both lints were broken while
+they were being written, and both reported `clean` on the exact code they
+existed to reject:**
+
+- `(?:is|has)(?:Unspent|…)` can never match `scriptHasUnspent` — there is no
+  word boundary between the `h` and the `U`, because they are one word.
+- The scope walk began brace-counting on the line holding the parameter list's
+  closing paren, which is the same line as the body's opening brace, so every
+  function measured one line long and no scope ever contained a `connect()` call.
+
+A lint that has only ever run against correct code is not a lint. The proof
+suite reintroduces each real defect into a scratch copy and requires the lint to
+fail, then requires it to pass on the fixed code and on the legitimate P2PKH
+neighbours — 9 assertions, because a rule that flags honest code teaches people
+to disable it.
+
+`lint-covenant-node` is deliberately narrow. It does not flag `runAttempt()` in
+`swap.mjs`, which reads token UTXOs from the wallet's own P2PKH addresses
+through `connect()`: that is correct, and a broader rule would have trained
+everyone to bypass it.
+
 ## Related
 
 - [`./cauldron-k-invariant.md`](./cauldron-k-invariant.md) — the two rules a
