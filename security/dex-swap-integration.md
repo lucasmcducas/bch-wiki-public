@@ -269,3 +269,39 @@ swap still consumes one. See
 [`../references/resource-safety-and-wall-clock.md`](../references/resource-safety-and-wall-clock.md)
 — one rejected swap advanced `change_index` by 5. The address must be committed
 only after the node returns a real 64-hex txid.
+
+
+---
+
+## Correction: `Missing inputs` was never attributed to a cause
+
+The addendum above says the live swap "was rejected at broadcast because the
+pools went stale inside the run." **That cause was assumed, not established**, and
+it should not have been written as fact here.
+
+What the log actually contained: three attempts, each returning a **byte-identical
+quote — the same price to 27 decimal places**. Contended pools move the price. That
+is not a subtle inference; it is the refutation, sitting in the same log I read
+three times.
+
+Decoding the signed transaction settles what is *not* the cause:
+
+    inputs: 15   outputs: 15
+    scriptSig per input: [69 × 13, 100, 100]     → 15/15 signed
+    ours (13, 14):  100 bytes, sighash 0x41
+    pool (0–12):     69 bytes, sighash 0x7c     → pre-signed by the operators
+
+The transaction is fully signed. The 13 pool inputs arrive already signed, and
+their prevouts are the router's responsibility, not ours. So a `Missing inputs`
+here points at the *prevouts the router selected* — not at our keys, not at our
+signing, and not demonstrably at contention.
+
+Still unresolved: whether those pool UTXOs are genuinely spent, or whether the
+broadcasting node cannot evaluate p2sh32 covenants. The first is a router/chain
+fact; the second is a node-capability fact. They have different fixes, and I never
+distinguished them.
+
+**A `Missing inputs` rejection names a symptom, not a cause.** ABC reports one
+error for an input that is unknown and for an input that is already spent. Before
+writing a cause into a design document, require a fact that could only be true
+under that cause. For contention that fact is price movement across attempts.

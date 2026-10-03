@@ -64,19 +64,41 @@ If you read nothing else, read these:
 
 12. **No public CVE exists for any production BCH wallet — do not read that as a clean bill of health.** Cashonize maintains an honest `security-considerations.md` and explicitly scopes plaintext seed storage *out* of its vulnerability programme. Documented risk is the dominant failure mode in this ecosystem, not undisclosed vulnerabilities.
 
-13. **A Cauldron swap's pool state is contested, so `Missing inputs` is a normal
-    outcome rather than a defect — and it cannot be fixed by re-broadcasting.**
-    Pool UTXOs are shared: competing swaps consume the same inputs, and ABC raises
-    `Missing inputs` when an input is unknown *or already spent* (never for a script
-    or signature problem — see [`utxo-and-mempool.md`](utxo-and-mempool.md)). A
-    swap observed on 2026-10-02 passed every local gate — quote matched build, 2/15
-    outputs ours, 13/13 pool inputs verified unspent across two independent nodes —
-    and was still rejected at broadcast, because the pools went stale inside the
-    same run. The only correct response is to rebuild against fresh pool state;
-    resubmitting identical bytes cannot succeed. Both broadcast paths failed on
-    that attempt (Electrum with `Missing inputs`, the Cauldron HTTP endpoint with
-    `fetch failed`), so a swap needs a retry loop keyed to re-quoting, not a single
-    attempt.
+13. **A `Missing inputs` rejection says an input is unusable. It does not say
+    why — and reading it as contention is a guess, not a diagnosis.** ABC raises
+    `Missing inputs` when an input is unknown *or already spent*, never for a
+    script or signature problem (see [`utxo-and-mempool.md`](utxo-and-mempool.md)).
+    That makes "pool contention" the *first* hypothesis and not a *conclusion*.
+    A swap observed on 2026-10-02 passed every local gate — quote matched build,
+    2/15 outputs ours, 13/13 pool inputs verified unspent across two independent
+    nodes — and was still rejected at broadcast.
+
+    **The evidence that refuted contention:** all three attempts returned a
+    byte-identical quote, the same price to 27 decimals. Contended pools move the
+    price. Identical prices across attempts is positive evidence that nothing was
+    being consumed between them. I asserted contention anyway, committed it, and
+    wrote it into this wiki — three unverified repetitions of the same
+    hypothesis, which is worse than a single wrong guess because it starts to
+    look established.
+
+    **The rule:** before naming a cause, find a fact that could only be true if
+    that cause were true. For contention, that fact is price movement across
+    attempts. Absent it, the honest statement is "the pool inputs are not
+    accepted by the node, cause not yet established". Retracting costs one edit;
+    an unfounded cause propagates into commit messages, design documents, and the
+    next engineer's time.
+
+    What is established, by decoding the transaction with `decodeTransactionBCH`:
+    **all 15 inputs carry a scriptSig** — 13 pre-signed by the pool operators
+    (sighash byte `0x7c`), ours at indices 13–14. The signing path is not the
+    fault. A `Missing inputs` on a fully-signed transaction points at the
+    *prevouts* the router selected, which are the router's responsibility, not
+    ours.
+
+    Rebuilding on a stale rejection is still correct practice — identical bytes
+    naming a spent input cannot succeed — but that is a general property of
+    chain state, not an argument from an unestablished cause.
+
 
 14. **Two node implementations disagree about the same UTXO, and the empty answer
     is the dangerous one.** Fulcrum does not index p2sh32 covenant scripts: across

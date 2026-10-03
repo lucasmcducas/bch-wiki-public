@@ -680,13 +680,91 @@ Three bugs stacked, all in the same pre-signing check, all silent:
    refuse a valid swap.
 
 Result: a swap passed every gate, was signed, and was **rejected at broadcast**
-with `Missing inputs` because the pools went stale inside the run. Correct
-response is to re-quote and rebuild, never to resubmit identical bytes.
+with `Missing inputs`.
+
+**Correction (2026-10-02, later the same day).** I wrote this section claiming the
+cause was pool contention — the pools going stale inside the run. **That was not
+established and the evidence points the other way:** all three retry attempts
+returned a *byte-identical quote*, the same price to 27 decimals. Contended pools
+move the price. Identical prices across attempts is positive evidence that nothing
+was being consumed between them.
+
+What is established, by decoding the signed hex with `decodeTransactionBCH`:
+
+    inputs: 15   outputs: 15
+    scriptSig length per input: [69 × 13, 100, 100]
+    inputs with a scriptSig: 15 / 15
+    input 13/14 (ours): 100 bytes, sighash 0x41
+    inputs 0-12 (pool):  69 bytes, sighash 0x7c
+
+The transaction is fully signed, including the 13 pool inputs that arrive
+pre-signed from the operators. So the rejection is not about our signing at all —
+it points at the *prevouts* the router selected, which are the router's
+responsibility. Whether those prevouts are already spent, or simply not evaluable
+by the broadcasting node, was never determined.
+
+The three bugs above are real and independently worth fixing. The one thing that
+is wrong is the causal sentence at the end of it.
 
 **Rule:** a check that has never fired is not a check. Prove it fires by making it
 fail on purpose — reintroduce the bug, confirm the test goes red, then restore.
 And **verify your parser against a reference implementation before trusting it**;
 `decodeTransactionBCH` was already imported one line above the hand-rolled walk.
+
+**The second rule, which cost more:** a rejection message names a *symptom*
+(`Missing inputs` = unusable input), not a *cause*. Before writing a cause down,
+find a fact that could only be true under that cause. I had three opportunities to
+check — the identical price across attempts was sitting in the log the whole time
+— and instead committed the guess, wrote it into this wiki, and repeated it back
+to the user. A wrong cause in three places is materially worse than one wrong
+guess: it stops reading as a guess and starts reading as established.
+
+---
+
+## 27. Reading `witnesses` on a BCH transaction, and concluding it was unsigned
+
+I decoded a signed swap and reported **"0 / 15 inputs carry a signature."** Then,
+on that basis, told the user the signing path was a no-op.
+
+The code was:
+
+```js
+const w = tx.inputs.map((i) => i.witnesses?.length ?? 0);   // all zero
+```
+
+**BCH has no segwit.** A BCH transaction carries its signature in
+`input.unlockingBytecode` — the scriptSig — which libauth populates as raw bytes.
+`witnesses` is the segwit field, and on BCH it is legitimately empty. The correct
+read is:
+
+```js
+const ss = tx.inputs.map((i) => i.unlockingBytecode?.length ?? 0);
+// [69 × 13, 100, 100]  → 15/15 signed
+```
+
+So the transaction was fully signed, including the 13 pool inputs that arrive
+pre-signed from the operators. **I had the answer in hand and read the wrong
+field**, then escalated it into a confident diagnosis within one message.
+
+**This is the same failure as §26 wearing a different hat.** There I asserted a
+cause the evidence did not support; here I asserted a defect in the wrong
+subsystem. In both cases the move was the same: notice an anomaly, reach for the
+nearest familiar explanation, and report it as a finding instead of a question.
+
+Two cheap checks that would have caught it, neither of which I ran:
+
+- **A value that is zero everywhere is more likely a wrong accessor than a real
+  result.** "Every single input has no signature" should have prompted "is
+  `witnesses` even the field BCH uses?" before anything else.
+- **Check the field against a known-good fixture.** The repo has
+  `test-signer-binding.mjs` and `test-external-signing.mjs` (7/7 and 12/12
+  passing) which assert on `unlockingBytecode`. Those existed and would have
+  settled it in one second.
+
+**Rule:** when every instance of a field is falsy, verify the field name against a
+documented example or an existing test before concluding anything about the data.
+And when reporting a defect, name the check that established it — "I read
+`witnesses`" is a check I never ran, dressed up as a finding.
 
 ---
 
@@ -720,6 +798,8 @@ right thing:
 | `BigInt("0.10")` on a display amount | a token send |
 | `request(m, [a, b])` on a variadic client | a safety check |
 | a fixed 20-address gap limit | a balance |
+| an unestablished cause | a design document |
+| the wrong field name | a defect report |
 
 The defence is the same in every case: **push the rule down the mechanism
 hierarchy** — type system → lint that fails CI → banned API → runtime check →

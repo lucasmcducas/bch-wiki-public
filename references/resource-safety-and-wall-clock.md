@@ -96,8 +96,13 @@ the network then rejected.
 
 Measured, 2026-10-02:
 
-- A swap signed correctly and was rejected with `Missing inputs` (Cauldron pool
-  contention — a competing swap consumed the pools between build and broadcast).
+- A swap signed correctly (15/15 inputs carry a scriptSig) and was rejected with
+  `Missing inputs`. I attributed this to Cauldron pool contention without
+  establishing it — the three attempts returned a byte-identical quote, same
+  price to 27 decimals, which refutes contention. See
+  [`../syntheses/failure-modes-we-hit.md`](../syntheses/failure-modes-we-hit.md)
+  §26 and §27. The cause of the rejection was never determined; the *leak* is
+  what this section is about, and the leak is real regardless.
 - That single run advanced `change_index` by **5**.
 - Five such runs pushed it **40 → 45**.
 
