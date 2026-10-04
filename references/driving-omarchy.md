@@ -453,20 +453,44 @@ widget in `shell.json`'s `right` group:
 The balance matches `bch-bot balance` exactly, so the panel is displaying real
 wallet state rather than a placeholder.
 
-**The one genuine failure is the swap view**, and it is a real one rather than a
-rendering artefact: the panel reports
+**The swap view's red error was false, and I wrote it down as a finding.** The
+panel displayed
 
 ```
 no tokens have a live Cauldron market
 ```
 
-in red. The swap flow is built and reachable; the router has no live market for
-BCH↔pusd, so quotes cannot be fetched. That is a backend/liquidity condition, not
-a UI bug, and it is the outstanding item before swap can be called working.
+in red, and I recorded that as a router/liquidity condition — the outstanding
+blocker before swap could be called working. It was never true. The market is
+live:
 
-**Not yet verified:** a broadcast. No send or swap has been executed, so the
-confirm-and-broadcast path is unexercised — deliberately, since it moves real
-value. Getting there would need the swap market to exist first.
+```
+$ bch-bot swap BCH pusd 0.01
+swap: 0.01000000 BCH -> PUSD
+[1/4] quote: 3.15 PUSD across 12 pool(s)
+[3/4] building the swap...
+      built 2701 bytes, 2 payout(s), fee 2701 sats (already signed)
+      verified: pays 3.15 PUSD against a quote of 3.15
+```
+
+and `bch-bot list-tokens --json` returns **346 tokens, PUSD among them**.
+
+The panel treated *any* falsy parse of `list-tokens` as a statement about the
+router. The command emits 107KB of JSON (134KB pretty-printed); the read did not
+arrive intact, `JSON.parse` failed, and the panel asserted a fact about the world
+that no evidence supported. A transport failure and a market condition are
+different things, and the panel reported the second while suffering the first.
+
+Fixed two ways (`bch-bot-omarchy` 037137e, `bch-bot-public` 214914f): the error now
+distinguishes an empty read from a short one and reports byte counts instead of
+claiming anything about the router, and `list-tokens` gained `--compact` for
+machine readers. The false message is gone from the panel.
+
+**Still outstanding, and this one is real:** the swap view loads clean, but the
+Buy asset field renders as a placeholder rather than a selected token, so the
+token picker is not populating. The market is there and the quote path works from
+the CLI; the panel does not yet reach it. And no broadcast has been executed, so
+confirm-and-broadcast is unexercised — deliberately, since it moves real value.
 
 ## The lesson
 
@@ -485,8 +509,9 @@ conclusion first:
 | "the framebuffer is blank" | `dd` was permission-denied on a root-only device |
 | "a panel opened at y=80" | the wallpaper is animated and moved |
 | "the send view has a truncated placeholder and an empty selector" | the ellipsis is intended; the chip is selected |
+| "the router has no live market for BCH↔pusd" | it does — 3.15 PUSD across 12 pools; the panel's read failed |
 
-Four patterns generalise:
+Five patterns generalise:
 
 **A single tool failing is not a property of the machine.** `grim` hanging says
 something about `grim`; `hyprctl eval` doing nothing says something about
@@ -506,6 +531,13 @@ should exist — to tell the truth.
 answers "is there even an unlocked desktop here" in one call. It should have been
 the second thing I ran, not the fortieth — and the black bar in the first capture
 was already the evidence.
+
+**A message on a screen is a symptom until you check the thing it names.** The
+panel said the router had no market, and that is a testable claim about the
+world, not about the panel. One command — `bch-bot swap BCH pusd 0.01` — settled
+it, and it should have been the first thing I ran rather than something Luke had
+to correct me on. A UI that reports an external condition is making a claim; the
+cheapest way to respect it is to ask the thing it is claiming about.
 
 **Verify the cheap thing before the expensive thing.** `qmllint` on a QML file is
 instant and would have caught a parse error that cost a deploy, a restart, and a
