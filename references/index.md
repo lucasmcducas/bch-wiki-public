@@ -5,6 +5,8 @@ list.
 
 ## Sections
 
+- [Driving the omarchy machine](driving-omarchy.md) — headless Hyprland/Quickshell:
+  what works, what silently does not, and why screenshots are impossible there
 - [Swaps on BCH](swaps/index.md) — trading on a CashTokens AMM: how a pool is
   represented on-chain, the k-invariant a route must satisfy, and the failure
   modes that only appear against a live pool

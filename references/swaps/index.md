@@ -25,6 +25,13 @@ why were all wrong.
    — a safety check that printed `12/12 verified unspent` on a route whose every
    input was already consumed, and the three questions that catch this class.
 
+## Where this runs
+
+The panel these swaps run from lives on a machine you cannot see, on a display
+that cannot be screenshotted. See
+[`../driving-omarchy.md`](../driving-omarchy.md) before concluding anything about
+its UI from a passing test.
+
 ## Also relevant, elsewhere in the wiki
 
 - [`../security/dex-swap-integration.md`](../../security/dex-swap-integration.md) —
