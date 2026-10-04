@@ -325,7 +325,92 @@ visible: slotVisible
 running is proof of instantiation and **not** proof of visibility. Measure pixels
 for the second.
 
-## 7. What vision does and does not see on a 28px bar
+## 7. hyprctl here is a Lua API, and there is no mouse click at all
+
+Hyprland 0.56.2 on this machine does not accept the classic dispatcher commands.
+`hyprctl dispatch movecursor 100 100` is fed to Lua and fails with
+`'(' expected near '100'`. The interface is `hl.dsp.<group>.<fn>`:
+
+```bash
+hyprctl eval     'hl.dsp.cursor.move({x=14, y=566})'   # returns ok, DOES NOTHING
+hyprctl dispatch 'hl.dsp.cursor.move({x=14, y=566})'    # ok — this is the one that works
+```
+
+That difference cost a long stretch of the verification. `hyprctl eval` reports
+success and is inert; `hyprctl dispatch` with a full Lua expression works. I spent
+many rounds concluding "input is broken" while sending only `eval` calls.
+
+Groups present: `cursor.move`, `send_key_state`, `exec_cmd`, `exec_raw`,
+`window.*`, `workspace.*`, `group.*`, `focus`, `dpms`, `pass`, `event`. **There
+is no click or mouse-button dispatcher** — not `click`, not `moveactivepointer`,
+nothing. Right-clicking a widget is not available on this box, by any route.
+
+`send_key_state` does work, with `{ mods, key, state }` where `mods` is a
+**string** and `state` is `"down"`/`"up"`/`"repeat"` (not `"pressed"`). Verified
+by sending Escape to close `omarchy-menu`, which is a real effect on the desktop.
+
+## 8. Driving a Quickshell panel with no mouse: IpcHandler
+
+Since a click is impossible, a click-only widget is unreachable. The omarchy
+plugins already solve this, and so does the wallet panel now:
+
+```qml
+IpcHandler {
+  target: "bch-wallet-panel"
+  function open() { root.panelOpen = true }
+  function toggle() { root.panelOpen = !root.panelOpen }
+}
+```
+
+Called with the **live instance pid** — bare `qs ipc call` fails with "Could not
+find config directory" because the shell runs with `-p` and has no default config
+name:
+
+```bash
+pid=$(for p in /proc/[0-9]*; do [ "$(cat $p/comm 2>/dev/null)" = quickshell ] && basename $p; done | head -1)
+qs ipc --pid $pid call bch-wallet-panel open
+```
+
+**QML has no return-type syntax on functions.** `function open(): void` is a parse
+error — I wrote nine of them and it took the entire panel down.
+
+## 9. Restarting the shell, and where load failures hide
+
+`quickshell -n -p …` refuses to start a second instance of the same config, and
+`kill` returns long before the process has actually exited. Start too early and you
+get:
+
+```
+An instance of this configuration is already running.
+```
+
+…with the new code silently never loaded. **Wait for the old instance to be gone
+before starting the new one.** Related: `pgrep -f quickshell` matches the ssh
+command line, so counts are always inflated and `pkill -f quickshell` kills the
+session — enumerate `/proc/*/comm` instead.
+
+When a widget fails to load, the shell does **not** stop, does not exit non-zero,
+and prints nothing to stderr. The only record is the per-instance log:
+
+```bash
+d=$(ls -td /run/user/1000/quickshell/by-id/*/ | head -1)
+grep -a -iE "failed|unavailable|is not a type" "$d/log.qslog" | tr -d '\000' | tail
+```
+
+It is interleaved with tens of thousands of lines of NetworkManager chatter, and
+it contains **raw NUL bytes** — a plain read throws `UnicodeDecodeError`, so
+decode with `errors="replace"`. This is where the parse error showed up as:
+
+```
+Plugin widget io.github.lucasmcducas.bch-wallet failed:
+BchBalanceWidget.qml:249:5: Type BchWalletPanel unavailable
+```
+
+which reads like a wiring problem and is a syntax error 900 lines away. **Run
+`qmllint <file>.qml` before deploying** — it is installed, it is instant, and it
+would have caught it immediately.
+
+## 10. What vision does and does not see on a 28px bar
 
 Handed a downscaled full-screen shot, a vision model described the bar's contents
 confidently and **confabulated the rest** — it reported reading a Bitcoin symbol
@@ -342,8 +427,46 @@ convert shot.png -crop 28x1080+0+0 +repage -colors 6 -format '%c' histogram:info
 ```
 
 A large open panel *is* legible once the screen is unlocked. The path to getting
-there: wake the screen, right-click the slot from the `shell.json` order, capture
-`fullscreen save`, scp the PNG, and read it.
+there: wake the screen, open the panel over IPC, capture `fullscreen save`, scp
+the PNG, and read it.
+
+One caution in the other direction: vision also **invents defects**. Asked about
+the send view it reported a `bitcoincash:q…` placeholder as "truncated" — the
+ellipsis is the intended text — and the asset selector as "empty" when
+`sendAsset: "bch"` renders as a selected chip rather than a text value. Check the
+code before believing a claimed bug.
+
+## 11. What is actually verified
+
+Confirmed on the machine, at plugin `a8afe54`, with the shell restarted and the
+widget in `shell.json`'s `right` group:
+
+| view | rendered | notes |
+|---|---|---|
+| bar widget | yes | bar strip paints themed `#1A1B26` with widget content |
+| panel opens | yes | `omarchy-keyboard-panel` layer appears via IPC |
+| home | yes | `0.01658402 BCH`, `5 UTXOs`, `ROACH 2`, Receive/Send/Swap |
+| send | yes | asset chips, recipient + amount fields, Preview / Confirm & send |
+| receive | yes | `deriving…` while the address is computed, Copy address / Done |
+| swap | yes | Sell/Buy tabs, BCH→pusd, quote controls — **and a real error** |
+
+The balance matches `bch-bot balance` exactly, so the panel is displaying real
+wallet state rather than a placeholder.
+
+**The one genuine failure is the swap view**, and it is a real one rather than a
+rendering artefact: the panel reports
+
+```
+no tokens have a live Cauldron market
+```
+
+in red. The swap flow is built and reachable; the router has no live market for
+BCH↔pusd, so quotes cannot be fetched. That is a backend/liquidity condition, not
+a UI bug, and it is the outstanding item before swap can be called working.
+
+**Not yet verified:** a broadcast. No send or swap has been executed, so the
+confirm-and-broadcast path is unexercised — deliberately, since it moves real
+value. Getting there would need the swap market to exist first.
 
 ## The lesson
 
@@ -355,27 +478,39 @@ conclusion first:
 | "qs.Ui is not installed, so the panel cannot load" | it is in `/usr/share/omarchy/shell` |
 | "screenshots are impossible on this display" | `omarchy capture screenshot fullscreen save` works; only `grim` hangs |
 | "the bar renders nothing, so the widget is broken" | the screensaver was covering the screen |
+| "input is broken, clicks do nothing" | `hyprctl eval` is inert; `hyprctl dispatch` with a Lua expression works |
+| "I can right-click the widget" | this build has no click dispatcher at all — IpcHandler instead |
 | "the panel runs `bch-bot`, so the UI works" | only a startup `balance` was observed |
 | "the panel is deployed" | the installed clone was four commits behind |
 | "the framebuffer is blank" | `dd` was permission-denied on a root-only device |
 | "a panel opened at y=80" | the wallpaper is animated and moved |
+| "the send view has a truncated placeholder and an empty selector" | the ellipsis is intended; the chip is selected |
 
-Three patterns generalise:
+Four patterns generalise:
 
 **A single tool failing is not a property of the machine.** `grim` hanging says
-something about `grim`. Before recording a capability as absent, check what else
-the system provides — and if the claim is already written down, correct it in
-place. A wrong fact in a wiki is worse than a missing one: it stops the next
-reader from checking.
+something about `grim`; `hyprctl eval` doing nothing says something about
+`eval`. Before recording a capability as absent, check what else the system
+provides — and if the claim is already written down, correct it in place, keeping
+the wrong version visible. A wrong fact in a wiki is worse than a missing one:
+it stops the next reader from checking.
 
-**A live process is not a visible surface.** The widget ran `bch-bot` perfectly
-while its UI was entirely hidden behind a lock. Background work continuing
-proves instantiation, never visibility.
+**A live process is not a visible surface, and a success code is not a success.**
+The widget ran `bch-bot` perfectly while hidden behind a lock. `hyprctl eval`
+returned `ok` while doing nothing. `quickshell` started, printed no error, and
+exited zero with the panel's parse error silently swallowed. Every one of those
+needed a **positive observation** — pixels, a cursor position, a file that
+should exist — to tell the truth.
 
 **Establish the baseline before trusting a surprising result.** `hyprctl clients`
 answers "is there even an unlocked desktop here" in one call. It should have been
 the second thing I ran, not the fortieth — and the black bar in the first capture
 was already the evidence.
+
+**Verify the cheap thing before the expensive thing.** `qmllint` on a QML file is
+instant and would have caught a parse error that cost a deploy, a restart, and a
+dig through 60KB of log. Reach for the local linter before the remote round trip,
+not after.
 
 ## See also
 
