@@ -11,14 +11,17 @@ why were all wrong.
 
 ## Read in this order
 
-1. **[Pool positions are derivable, not handed out](pool-position-derivation.md)**
+1. **[In-wallet swaps: ExchangeLab and the public indexer](../in-wallet-swaps.md)**
+   — what actually works now: pool state from a public indexer, the transaction
+   assembled locally, no server in the middle.
+2. **[Pool positions are derivable, not handed out](pool-position-derivation.md)**
    — the finding that reframed everything. A pool is a UTXO at an address you
    can compute from public data; a router naming a parent transaction is not the
    same thing as naming a live position.
-2. **[The Cauldron k-invariant and the re-creation rule](cauldron-k-invariant.md)**
+3. **[The Cauldron k-invariant and the re-creation rule](cauldron-k-invariant.md)**
    — the two rules the specification states, the doc-vs-implementation
    discrepancy in the k formula, and the byte-order trap.
-3. **[Gates that pass when they should fail](gates-that-pass-when-they-should-fail.md)**
+4. **[Gates that pass when they should fail](gates-that-pass-when-they-should-fail.md)**
    — a safety check that printed `12/12 verified unspent` on a route whose every
    input was already consumed, and the three questions that catch this class.
 
@@ -58,31 +61,28 @@ The browser is a UI, not the signer. `app.cauldron.quest` speaks
 machine sign the transaction the app builds — our key, our verification
 gates, the working router's route.
 
-## Trading today: `bch-bot swap-open`
+## Trading today: `bch-bot swap`
 
-The in-wallet swap path builds a correct transaction and cannot get it accepted,
-for the reason on the first page. So `bch-bot swap-open <sell> <buy>` opens the
-Cauldron app instead, which is what the reference wallet does:
+The in-wallet path works. The transaction is assembled locally by
+`@cashlab/cauldron` from pool state read off `indexer.riften.net`, the wallet
+signs its own input, and the wallet broadcasts:
 
 ```
-bch-bot swap-open BCH pusd
-  opened https://app.cauldron.quest/swap/2469acc5afa4b10c...
-  selling    BCH
-  receiving  PUSD (2469acc5afa4b10c..)
+bch-bot swap BCH pusd 0.001
+  [1/4] quote: 0.31 PUSD across 2 pool(s)
+  [2/4] 3 UTXO(s) available: 3 coin (1656311 sat)
+  [3/4] built 636 bytes, 2 payout(s), fee 636 sats (already signed)
+        verified: pays 0.31 PUSD against a quote of 0.31
+  DRY RUN -- set BCH_CONFIRM=yes to broadcast
 ```
 
-Two limits, both in `--help` rather than discovered later:
+`swap-open` is retired. Opening the browser was a workaround for a router that
+named a spent parent; with the build local there is nothing to work around.
 
-- **BCH cannot be a destination.** The app's URL is keyed on a CashToken
-  category, and BCH is the native asset with no category, so there is no page to
-  open. Selling a token for BCH means using the app directly. Cauldron trades the
-  pair both ways, so this is a limit of the URL scheme, not the protocol.
-- **The amount is typed in the browser.** The app reads no query parameters
-  beyond the category in the path.
-
-The browser signs. The command never touches a private key and never moves
-funds — which is the trade being made: the wallet stops being the signer for
-swaps specifically, in exchange for a path that works.
+**The router was never the bug — a server-side build was.** Re-pointing its
+inputs would have meant reimplementing the constant-product math, which is what
+`@cashlab/cauldron` turns out to be. See
+[../in-wallet-swaps.md](../in-wallet-swaps.md).
 
 ## The uncomfortable summary
 
@@ -99,5 +99,12 @@ The investigation produced six explanations for one rejection. Five were wrong:
 
 The last one survived only because someone asked how other wallets do it. Every
 earlier step had been spent interrogating our own stack.
+
+And the answer to that question changed the architecture rather than just
+explaining the failure. Paytaca builds its own swaps locally with the same
+published SDK, from the same public indexer this wallet already used for token
+lookup. Two days of work went into re-deriving something that was a dependency
+all along — which is the argument for reading a reference implementation before
+reimplementing a protocol.
 
 <!-- openclaw:wiki:swaps:index:end -->

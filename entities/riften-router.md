@@ -2,16 +2,30 @@
 pageType: entity
 entityType: service
 id: entity.riften-router
-description: The Cauldron Router — Riften Labs' public no-auth WebSocket service that quotes trades, assembles UNSIGNED swap transactions (including the pool inputs no user can sign), and returns the prevouts needed to sign. This is what makes a self-custodial BCH swap executable at all.
+description: Riften Labs' public no-auth WebSocket service that quoted trades and assembled UNSIGNED swap server-side. SUPERSEDED — it named a spent pool parent on every quote, so every swap was rejected. Swaps now assemble locally with @cashlab/cauldron against indexer.riften.net. Kept for the record.
 sourceUrl: https://docs.riftenlabs.com/router/
 ---
 
 # Riften Labs Cauldron Router
 
-> The service that solves the central problem with swapping on Cauldron: a pool
-> input must be signed by the **pool operator's** key, which no user wallet
-> holds. The Router assembles the transaction, the wallet signs only its own
-> inputs, and the wallet broadcasts.
+> **SUPERSEDED. This wallet no longer swaps through the router.** See
+> [[references/in-wallet-swaps]] for what replaced it.
+>
+> The router was built to solve a real problem: a pool input is a covenant that
+> only pool data can unlock, and no user wallet holds the pool operator's key.
+> The answer was to have a server assemble the transaction.
+>
+> That answer is what failed. The router named pool parent `fd02de7d..1138` —
+> 56 outputs, **all spent** — on every quote, and the network rejected every swap
+> with *"Missing inputs"*, an error that reads like a malformed transaction and
+> is not one. The liquidity was real; only the position had moved.
+>
+> The replacement is `@cashlab/cauldron`, which derives the covenant unlocking
+> bytecode from the pool itself. No server, no key we do not hold, nothing to go
+> stale between a quote and a build.
+>
+> What follows is kept as the historical record of how the design worked and why
+> it could not be repaired from the client side.
 
 ## Why it exists
 
