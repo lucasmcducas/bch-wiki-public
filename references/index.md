@@ -7,6 +7,9 @@ list.
 
 - [Driving the omarchy machine](driving-omarchy.md) — headless Hyprland/Quickshell:
   what works, what silently does not, and the wrong conclusions each produced first
+- [Intents](intents/index.md) — fiat to crypto as a signed claim: the ZKP2P/Peer
+  attestation that turns a Venmo or Zelle payment into an onchain proof, and NEAR Intents,
+  which routes Bitcoin Cash across the gap with live two-way quotes
 - [Swaps on BCH](swaps/index.md) — trading on a CashTokens AMM: how a pool is
   represented on-chain, the k-invariant a route must satisfy, and the failure
   modes that only appear against a live pool

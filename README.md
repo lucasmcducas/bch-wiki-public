@@ -16,6 +16,7 @@ collaboration (see [`syntheses/bch-omarchy-collaboration-plan.md`](syntheses/bch
 |---|---|
 | `entities/` | Reference entries on BCH ecosystem projects (Cauldron DEX, libauth, PUSD, ROACH, etc.) |
 | `references/` | Topical reference docs (zero-conf security, economics primer, Omarchy research) |
+| `references/intents/` | **Fiat to crypto as a signed claim** — ZKP2P/Peer turns a Venmo or Zelle payment into an EIP-712 attestation signed in a TEE, and NEAR Intents carries Bitcoin Cash as a native source asset, verified with live signed quotes in both directions |
 | `references/x402-on-bch.md` | **x402 assessed for BCH** — HTTP 402 micropayments: the V2 mechanics, why BCH is absent from a protocol with 12 supported rails, the two mutually incompatible BCH dialects that exist outside it, and the 546-sat dust floor that forces prepay-and-debit |
 | `references/receiving-an-address.md` | **Getting paid** — the CashAddr as text, QR and clipboard: why the QR is a verification surface, why a stale clipboard beats an empty one, and the three-way equality a passing test has to assert |
 | `references/swaps/` | **Swaps on a CashTokens AMM** — how a Cauldron pool is really represented on-chain, the k-invariant a route must satisfy, and the class of bug where a safety check reports success on a dead route |

@@ -307,6 +307,9 @@ stated methodology.
 Also note: `mempool.space`'s `minimumFee` is **Bitcoin's** API. The BCH figures
 above come from a BCHN Fulcrum node.
 
+- [[references/intents/index]] — the other side of the same problem: how a *fiat* payment
+  becomes a signed claim, and where BCH already has a working route
+
 ## See also
 
 - [[references/in-wallet-swaps]] — the Cauldron AMM path, and why a payment layer

@@ -189,6 +189,9 @@ present. The address and the copy button worked, the panel looked complete, and
 a transport that does not exist cannot fail loudly. *Check the deliverable
 exists; a plan entry is not an implementation.*
 
+- [[references/intents/index]] — where the received BCH can come *from* a fiat payment,
+  and the dust floor both paths have to clear
+
 ## See also
 
 - [[references/driving-omarchy]] — getting the panel driven and observed headlessly
