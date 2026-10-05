@@ -436,61 +436,150 @@ ellipsis is the intended text — and the asset selector as "empty" when
 `sendAsset: "bch"` renders as a selected chip rather than a text value. Check the
 code before believing a claimed bug.
 
-## 11. What is actually verified
+## 11. Driving the UI the way a user does
 
-Confirmed on the machine, at plugin `a8afe54`, with the shell restarted and the
-widget in `shell.json`'s `right` group:
+Two bugs shipped here that only a real click could have found, and the second
+one is the more interesting failure of method.
 
-| view | rendered | notes |
+### The click did nothing, and no error said so
+
+```qml
+onPressed: root.handlePress
+```
+
+That passes a bare function reference, so QML calls `handlePress` with **no
+arguments**. `pressedButton` is always `undefined`, so every branch in the
+handler failed silently — a user clicking the wallet got no panel, no refresh,
+and nothing in any log. The fix is the lambda form every first-party widget uses
+(`Microphone.qml:45`):
+
+```qml
+onPressed: function (b) { root.handlePress(b) }
+```
+
+I did not catch this because I had been driving the panel over IPC, which
+bypasses the click path entirely. **A control that only works when you do not
+click it is not a control.** Verify the path a user takes, not a side door added
+for testing.
+
+Left click now opens the panel, as users expect. It was right-click only, with
+left doing a refresh whose effect — a number changing — is invisible. Every
+first-party widget acts on left click.
+
+### Synthesising a real click on a build with no click dispatcher
+
+`hl.dsp` has `cursor.move`, `send_key_state`, `exec_cmd` and `window.*`, and
+**nothing for mouse buttons**. `wtype` types keys; `ydotool`/`xdotool` are not
+installed. So a click needs a virtual device. The parts that are not obvious:
+
+```python
+# struct uinput_user_dev is 1116 bytes, and a plausible-looking wrong packing
+# makes write(2) fail EINVAL:
+#   name[80] + input_id{4 x u16} + ff_effects_max(u32) + 4 arrays of u32[64]
+ABS_CNT = 64
+buf  = bytearray(b"hermes-mouse" + b"\x00" * 60)
+buf += struct.pack("<HHHH", 0x03, 0x1234, 0x5678, 0x0001)   # BUS_VIRTUAL
+buf += struct.pack("<I", 0)                                  # ff_effects_max
+buf += b"\x00" * (4 * ABS_CNT * 4)
+assert len(buf) == 1116
+```
+
+- **Use RELATIVE axes.** `UI_SET_ABSBIT` fails EINVAL on this kernel, and
+  absolute axes need a per-axis `UI_ABS_SETUP` absinfo before `UI_DEV_CREATE`.
+  Relative axes need neither and match the real mice on the box.
+- **`UI_ENABLE` is EINVAL for every code tried** (`REL_X=0`, `BTN_LEFT=0x110`).
+  It looks like an unsupported ioctl rather than a bad argument. Buttons and
+  relative axes both default to enabled, so treat it as best-effort — making it
+  fatal meant the device never existed at all.
+- **Write `SYN_REPORT` as a normal event**, not as eight raw NUL bytes, which is
+  EINVAL. Writing it raw threw *partway through the glide*, after the cursor had
+  already moved — so a working device looked like it failed at random.
+- **Place the cursor with the compositor, not with the device.** Pointer
+  acceleration means a relative delta of N does not move N pixels: one run wanted
+  `14,566` and ended at `19,764` after six correction passes, and never emitted a
+  click. That reads exactly like "the widget is not clickable".
+
+```python
+subprocess.run(["hyprctl", "dispatch", f"hl.dsp.cursor.move({{x={tx}, y={ty}}})"])
+# then only the button press/release via uinput
+```
+
+`/dev/uinput` is root-only for luke, so run it as root:
+
+```bash
+env -i PATH=/usr/bin:/bin HOME=/home/luke ~/.hermes/bin/omarchy-sudo   python3 /tmp/click.py <x> <y> left
+```
+
+The clean env matters — the helper's venv otherwise fails with
+`undefined symbol: PyType_GetName` from its `cryptography` import.
+
+### The widget was at y=976, and pixel-diffing could not find it
+
+Measuring which bar rows change when the panel opens over IPC said **562-570**,
+and clicking there opened the **calendar**. The wallet is at **y=976**.
+
+Pixel-diffing the bar tells you *what changed*, not *what is there* — two
+widgets light up at once and neither diff is wrong. Only a log inside the widget
+distinguishes them.
+
+That log took four attempts, because every mechanism available in this Quickshell
+build was dead, and each failure looked like "the click does not work":
+
+| attempt | why it failed |
+|---|---|
+| `FileView` | `print` and `writeMethods` do not exist in 0.3.1 — both are hard load errors |
+| `Process`, `running` false→true in one tick | QML collapses the change; it fires once at load and never again |
+| `Timer` to space the two apart | `Timer.onTriggered` is a **dead signal** here |
+| `Process` started the way `refresh()` starts `balanceProcess` | works |
+
+A plain `Process` with a shell append, started the proven way, is what finally
+showed `press button=seen-1` on a real click. It is not worth shipping, so it is
+out — but it is what proved the click.
+
+**That dead `Timer` is also a live bug in the widget.** Its 60-second refresh
+Timer cannot tick, so the bar balance only updates when the panel is opened.
+Separately worth fixing.
+
+### QML traps that each took the whole panel down
+
+Every one surfaces as `Type BchWalletPanel unavailable` — an error blaming a
+*wiring* problem, pointing 120 lines away from the actual cause. The shell does
+not stop, does not exit non-zero, and prints nothing to stderr; only the
+per-instance log records it.
+
+- **No return types on functions.** `function open(): void` is a parse error.
+- **A `TapHandler` has no `anchors`.** It is a pointer handler, not an Item; it
+  covers its *parent's* bounds. `anchors.fill` on one is
+  `Cannot assign to non-existent property "anchors"`.
+- **An `IpcHandler` has no default property**, so it cannot hold child objects.
+- `qmllint` catches the return-type syntax and none of the other three — those
+  are valid QML, invalid against this Quickshell version.
+
+And one that is a design bug rather than a syntax error: a backdrop `TapHandler`
+on a full-panel overlay covers the search field and every list row, so clicking a
+token just closes the picker. A pointer handler is not a dismiss affordance.
+
+## 12. What is actually verified
+
+At plugin `f3d9b81`, CLI `3731be4`, on the machine, shell restarted, install
+clean:
+
+| flow | how | result |
 |---|---|---|
-| bar widget | yes | bar strip paints themed `#1A1B26` with widget content |
-| panel opens | yes | `omarchy-keyboard-panel` layer appears via IPC |
-| home | yes | `0.01658402 BCH`, `5 UTXOs`, `ROACH 2`, Receive/Send/Swap |
-| send | yes | asset chips, recipient + amount fields, Preview / Confirm & send |
-| receive | yes | `deriving…` while the address is computed, Copy address / Done |
-| swap | yes | Sell/Buy tabs, BCH→pusd, quote controls — **and a real error** |
+| bar widget renders | pixels | themed `#1A1B26` strip with widget content |
+| **left click opens panel** | **real uinput click at y=976** | `BCH Wallet` / `0.01658402 BCH` / `5 UTXOs` / `ROACH 2` / Receive Send Swap |
+| home | screenshot | balance matches `bch-bot balance` exactly |
+| send | screenshot | asset chips, recipient + amount, Preview / Confirm & send |
+| receive | screenshot | `deriving…`, Copy address / Done |
+| swap view loads | screenshot | no false "no market" error |
+| token search | CLI | `--search pusd`→PUSD, `--search roach`→ROACH (outside top 20), `--search 2469acc5`→PUSD by category |
 
-The balance matches `bch-bot balance` exactly, so the panel is displaying real
-wallet state rather than a placeholder.
+The panel shows real wallet state, and the false router error is gone.
 
-**The swap view's red error was false, and I wrote it down as a finding.** The
-panel displayed
-
-```
-no tokens have a live Cauldron market
-```
-
-in red, and I recorded that as a router/liquidity condition — the outstanding
-blocker before swap could be called working. It was never true. The market is
-live:
-
-```
-$ bch-bot swap BCH pusd 0.01
-swap: 0.01000000 BCH -> PUSD
-[1/4] quote: 3.15 PUSD across 12 pool(s)
-[3/4] building the swap...
-      built 2701 bytes, 2 payout(s), fee 2701 sats (already signed)
-      verified: pays 3.15 PUSD against a quote of 3.15
-```
-
-and `bch-bot list-tokens --json` returns **346 tokens, PUSD among them**.
-
-The panel treated *any* falsy parse of `list-tokens` as a statement about the
-router. The command emits 107KB of JSON (134KB pretty-printed); the read did not
-arrive intact, `JSON.parse` failed, and the panel asserted a fact about the world
-that no evidence supported. A transport failure and a market condition are
-different things, and the panel reported the second while suffering the first.
-
-Fixed two ways (`bch-bot-omarchy` 037137e, `bch-bot-public` 214914f): the error now
-distinguishes an empty read from a short one and reports byte counts instead of
-claiming anything about the router, and `list-tokens` gained `--compact` for
-machine readers. The false message is gone from the panel.
-
-**Still outstanding, and this one is real:** the swap view loads clean, but the
-Buy asset field renders as a placeholder rather than a selected token, so the
-token picker is not populating. The market is there and the quote path works from
-the CLI; the panel does not yet reach it. And no broadcast has been executed, so
-confirm-and-broadcast is unexercised — deliberately, since it moves real value.
+**Not verified:** the Swap button and token picker have not been exercised with
+real clicks end to end. The CLI search is proven and the picker is implemented,
+but clicking through Swap → search → select has not been driven. And no broadcast
+has been executed — deliberately, since it moves real value.
 
 ## The lesson
 
@@ -510,8 +599,10 @@ conclusion first:
 | "a panel opened at y=80" | the wallpaper is animated and moved |
 | "the send view has a truncated placeholder and an empty selector" | the ellipsis is intended; the chip is selected |
 | "the router has no live market for BCH↔pusd" | it does — 3.15 PUSD across 12 pools; the panel's read failed |
+| "clicking the widget does nothing" | `onPressed: root.handlePress` passes no button, so every branch silently failed |
+| "the widget is at y=562-570" | it is at y=976; the bar diff lit two widgets and neither diff was wrong |
 
-Five patterns generalise:
+Seven patterns generalise:
 
 **A single tool failing is not a property of the machine.** `grim` hanging says
 something about `grim`; `hyprctl eval` doing nothing says something about
@@ -531,6 +622,17 @@ should exist — to tell the truth.
 answers "is there even an unlocked desktop here" in one call. It should have been
 the second thing I ran, not the fortieth — and the black bar in the first capture
 was already the evidence.
+
+**Verify the path a user takes, not a side door you added.** The wallet panel
+was fully working over IPC and completely dead to a real click, for an entire
+session, because I only ever drove it the way I had made it drivable. Any
+affordance reachable only through your own test harness is a control that has not
+been tested.
+
+**When your instrumentation cannot see something, suspect the instrument first.**
+Four separate mechanisms — FileView, a restarted Process, a Timer, a pixel diff —
+each reported "nothing happened" and each was itself broken. A diagnostic that
+says nothing is not evidence of absence.
 
 **A message on a screen is a symptom until you check the thing it names.** The
 panel said the router had no market, and that is a testable claim about the
