@@ -62,3 +62,8 @@ No fees, no payments, no per-install billing anywhere in the Omarchy stack.
 5. **The Coinbase plugin's existence is the counter-positioning** — a self-custodial, no-KYC, no-OAuth, fully sovereign BCH wallet is philosophically the opposite. That's marketing gold, not a friction point.
 
 See `references/omarchy-research.md` for the full research note (~2,260 words) and `syntheses/bch-bot-omarchy-monetization-plan.md` for the integration + monetization strategy.
+
+## See also
+
+- [[references/x402-on-bch]] — assessing HTTP 402 micropayments against the Omarchy
+  wallet: why BCH is absent from the protocol, and what a BCH client would even pay

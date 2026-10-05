@@ -23,4 +23,5 @@ list.
 - [Omarchy research](omarchy-research.md)
 - [Receiving an address](receiving-an-address.md)
 - [Resource safety and wall-clock](resource-safety-and-wall-clock.md)
+- [x402 on BCH](x402-on-bch.md)
 <!-- openclaw:wiki:references:index:end -->

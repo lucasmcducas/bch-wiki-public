@@ -172,3 +172,8 @@ capability instead of describing the call.
 
 - [Derivations and the relay key](derivations-and-the-relay-key.md)
 - [The signing rules](signing-rules.md)
+
+## See also
+
+- [[references/x402-on-bch]] — why agent-to-agent payments are the one x402 feature this
+  wallet must refuse, given the human-approval rule this protocol establishes

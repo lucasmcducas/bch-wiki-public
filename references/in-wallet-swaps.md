@@ -196,6 +196,9 @@ another. With no server-side quote, that hazard does not exist.
 The reasoning that *was* worth keeping is above, and the short-payment case is
 now a real test.
 
+- [[references/x402-on-bch]] — why adding an x402 payment layer to the router path is
+  rejected: third-party, already free, and already degraded by a broadcast failure
+
 ## See also
 
 - [[entities/riften-router]] — what the router was, and why it stopped working
