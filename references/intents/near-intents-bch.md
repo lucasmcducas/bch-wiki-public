@@ -151,6 +151,9 @@ is the size of the integration — the hard part is deciding whether to be the p
 that touches the fiat, and that is a business decision rather than a technical
 one.
 
+- [[references/intents/zcashto-cash]] — the same route running in production for
+  Zcash, including why the inventory model is what makes it cheap
+
 ## See also
 
 - [[references/intents/index]] — the full path

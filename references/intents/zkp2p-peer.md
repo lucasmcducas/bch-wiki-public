@@ -179,6 +179,9 @@ If the fiat leg is ever built, the honest options are PayPal's "Pay with Venmo"
 the regulated party), or Peer (no KYC, but we take the chargeback risk and depend
 on a 6-person company for proof).
 
+- [[references/intents/zcashto-cash]] — a consumer product built on this
+  protocol end to end, and the clearest statement of what it does not do
+
 ## See also
 
 - [[references/intents/index]] — the full path this page sits in

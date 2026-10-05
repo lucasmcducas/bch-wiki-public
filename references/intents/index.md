@@ -30,6 +30,10 @@ full path was quoted end to end in both directions.
    non-EVM, non-viem asset can be a payment source at all, the live asset list,
    and two real signed quotes in both directions.
 
+3. **[zcashto.cash: the precedent, working](zcashto-cash.md)** — the consumer
+   product that completes this flow for Zcash, and the closest working template
+   for a BCH version. Read this one if you are deciding whether to build.
+
 ## The whole path, in one block
 
 ```
@@ -103,8 +107,11 @@ obvious failure modes — a Zelle policy change, or Venmo's BCH listing moving �
 which anything built on scraping an app's inbox would not.
 
 See [zkp2p-peer.md](zkp2p-peer.md) for the three obstacles that must be solved
-regardless of who builds them, and [near-intents-bch.md](near-intents-bch.md)
-for the routing layer that already works.
+regardless of who builds them, [near-intents-bch.md](near-intents-bch.md) for
+the routing layer that already works, and
+[zcashto-cash.md](zcashto-cash.md) for the whole thing assembled into a consumer
+product for Zcash — which is the template, and the reason this reads as a front
+end rather than a protocol.
 
 ## See also
 
