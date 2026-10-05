@@ -561,25 +561,81 @@ token just closes the picker. A pointer handler is not a dismiss affordance.
 
 ## 12. What is actually verified
 
-At plugin `f3d9b81`, CLI `3731be4`, on the machine, shell restarted, install
-clean:
+At plugin `60b193c`, CLI `3731be4`, on the machine, shell restarted, install clean:
 
 | flow | how | result |
 |---|---|---|
 | bar widget renders | pixels | themed `#1A1B26` strip with widget content |
-| **left click opens panel** | **real uinput click at y=976** | `BCH Wallet` / `0.01658402 BCH` / `5 UTXOs` / `ROACH 2` / Receive Send Swap |
+| **left click opens panel** | **real uinput click at y=976** | `BCH Wallet` / balance / `ROACH 2` / Receive Send Swap |
 | home | screenshot | balance matches `bch-bot balance` exactly |
 | send | screenshot | asset chips, recipient + amount, Preview / Confirm & send |
-| receive | screenshot | `deriving…`, Copy address / Done |
 | swap view loads | screenshot | no false "no market" error |
+| **receive: address resolves** | **real click on Receive** | no spinner left hanging; fresh CashAddr each time |
+| **receive: QR renders** | screenshot + decode | 34 KB SVG on a white plate; `zbarimg` decodes it |
+| **receive: QR == shown address** | decode vs on-screen text | **byte-identical** |
+| **receive: Copy address** | real click, clipboard cleared first | `wl-paste` returns the same address |
 | token search | CLI | `--search pusd`→PUSD, `--search roach`→ROACH (outside top 20), `--search 2469acc5`→PUSD by category |
 
-The panel shows real wallet state, and the false router error is gone.
+The receive flow is verified end to end with real clicks, and the check that
+matters is the one asserting **all three transports agree** — displayed text,
+QR decode, and clipboard. Any one of them passing proves nothing on its own; see
+[[references/receiving-an-address]] for why, and for the two bugs that got
+through before that comparison existed.
 
 **Not verified:** the Swap button and token picker have not been exercised with
 real clicks end to end. The CLI search is proven and the picker is implemented,
 but clicking through Swap → search → select has not been driven. And no broadcast
 has been executed — deliberately, since it moves real value.
+
+## 13. Log the invocation, not the result
+
+The single most useful diagnostic on this box, and it took four wrong turns to
+arrive at. A view was intermittently stuck on its loading text; the cause was
+either a command not being dispatched or a command being dispatched and failing,
+and **the UI looks identical in both cases**. Reading the result-handling code
+could not separate them.
+
+```sh
+echo "$(date +%s.%N) $*" >> /tmp/bch-calls.log     # in the bch-bot shim
+```
+
+An **empty** log means never dispatched. A line means it ran, and the failure is
+downstream. It took one `wc -l` to settle a question that several rounds of
+screenshot-reading had not. Keep a copy of the shim and remove the line
+afterwards.
+
+This is the same "assert on the difference, not on presence" lesson as §11, at
+a different altitude: there the question was *did the UI change*, here it is
+*did the command run*. When the two candidate causes need opposite fixes, find
+an instrument that reads the thing they disagree about rather than a proxy for
+it.
+
+## 14. `qs ipc` needs `-p`, and it discards return values
+
+Two independent ways to conclude "the panel is dead" that are both wrong:
+
+- Without `-p /usr/share/omarchy/shell` it dies with `Could not find "default"
+  config directory`, because the shell runs with `-p` and has no default config
+  name.
+- **It returns empty for every function**, including ones that plainly return a
+  string — `qs ipc show` types them all as `(): void`. Empty output means
+  nothing at all; the handler may be perfectly healthy.
+
+```bash
+qs ipc -p /usr/share/omarchy/shell show            # the subcommand is `show`, not `-l`
+qs ipc -p /usr/share/omarchy/shell call <target> <fn>
+```
+
+`show` prints every registered target and function, which is the fastest way to
+confirm a handler exists. Because return values are dropped, assert on side
+effects — a file, a log, a screenshot.
+
+**An IpcHandler view switch is not the button it mimics.** A `receive()` handler
+that sets `root.view = "receive"` looks like the Receive button and does not call
+`loadAddress()`; only the button's `onClicked` does. Driving the handler proved
+the view renders and the command never runs. That one-line difference is the
+shape of the entire §13 bug, and it is invisible unless you read what the button
+actually calls.
 
 ## The lesson
 
@@ -601,6 +657,9 @@ conclusion first:
 | "the router has no live market for BCH↔pusd" | it does — 3.15 PUSD across 12 pools; the panel's read failed |
 | "clicking the widget does nothing" | `onPressed: root.handlePress` passes no button, so every branch silently failed |
 | "the widget is at y=562-570" | it is at y=976; the bar diff lit two widgets and neither diff was wrong |
+| "the receive view is stuck, so the result handler is broken" | the command was never dispatched — an invocation log was empty |
+| "the Copy button is broken, the clipboard came back empty" | a leftover `wl-copy` from an earlier test still owned the buffer |
+| "`qs ipc` returned nothing, so the handler is dead" | this build discards return values; the handler was fine |
 
 Seven patterns generalise:
 
@@ -641,6 +700,14 @@ it, and it should have been the first thing I ran rather than something Luke had
 to correct me on. A UI that reports an external condition is making a claim; the
 cheapest way to respect it is to ask the thing it is claiming about.
 
+**A loading state with no error is a dropped request until proven otherwise.**
+The shared-process helper guarded itself with `if (status === "busy") return` —
+sound as mutual exclusion, and wrong in a panel that refreshes in the background,
+because "busy" is the *normal* state when a user clicks. The request was thrown
+away roughly one click in three and nothing retried it. Queue it. This is the same
+shape as §11's dead signals: a defensive guard that is wrong about which state is
+normal turns a transient collision into a permanent hang with nothing to see.
+
 **Verify the cheap thing before the expensive thing.** `qmllint` on a QML file is
 instant and would have caught a parse error that cost a deploy, a restart, and a
 dig through 60KB of log. Reach for the local linter before the remote round trip,
@@ -649,5 +716,5 @@ not after.
 ## See also
 
 - [[references/in-wallet-swaps]] — the swap engine this panel drives
-- [[references/gates-that-pass-when-they-should-fail]] — the same discipline
+- [[references/swaps/gates-that-pass-when-they-should-fail]] — the same discipline
   applied to tests

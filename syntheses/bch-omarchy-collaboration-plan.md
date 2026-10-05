@@ -71,7 +71,7 @@ A BCH community member with idle GPU/CPU isn't doing the work themselves — the
 |---|---|---|
 | **#1** | Wire `bch-bot balance` into the bar widget | Bar shows live BCH balance updating every 60s; no network code in QML |
 | **#2** | Send modal with treasury fee disclosure | Fee line visible; confirmation gates on `BCH_CONFIRM=yes` |
-| **#3** | QR code generator for receive | QR encodes the address; works in shell command output |
+| **#3** | QR code generator for receive | **BUILT** — shipped in the panel: the address is rendered as a `qrencode` SVG, and the decoded code is asserted byte-equal to the shown address and to the clipboard. See [[references/receiving-an-address]] |
 | **#4** | preview.png + marketplace submission prep | Screenshot of bar widget, 1200x630, ≤50MB |
 | **#5** | Submit the marketplace listing | Issue opened at `omacom/omarchy-plugin-marketplace` with all 5 checklist items |
 

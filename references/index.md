@@ -6,7 +6,7 @@ list.
 ## Sections
 
 - [Driving the omarchy machine](driving-omarchy.md) — headless Hyprland/Quickshell:
-  what works, what silently does not, and why screenshots are impossible there
+  what works, what silently does not, and the wrong conclusions each produced first
 - [Swaps on BCH](swaps/index.md) — trading on a CashTokens AMM: how a pool is
   represented on-chain, the k-invariant a route must satisfy, and the failure
   modes that only appear against a live pool
@@ -21,5 +21,6 @@ list.
 - [BCH signing and verification](bch-signing-and-verification.md)
 - [BCH zero-conf security](bch-zero-conf-security.md)
 - [Omarchy research](omarchy-research.md)
+- [Receiving an address](receiving-an-address.md)
 - [Resource safety and wall-clock](resource-safety-and-wall-clock.md)
 <!-- openclaw:wiki:references:index:end -->

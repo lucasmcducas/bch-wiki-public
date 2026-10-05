@@ -213,3 +213,8 @@ The pattern worth naming: **the BCH wallet ecosystem documents its known weaknes
 - bch-bot code paths: `/home/luke/bch-bot/lib/wallet.mjs`, `/home/luke/bch-bot/lib/sign.mjs`
 - Sept 2025 npm supply-chain attack: <https://www.paloaltonetworks.com/blog/cloud-security/npm-supply-chain-attack/>, <https://vercel.com/blog/critical-npm-supply-chain-attack-response-september-8-2025>
 - Coldcard air-gap signing: <https://coldcard.com/learn/hardware-wallets/air-gapped-signing>
+
+## See also
+
+- [[references/receiving-an-address]] — the QR and clipboard as the two
+  receive transports whose failure modes are worth designing against

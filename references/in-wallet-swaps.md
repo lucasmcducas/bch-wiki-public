@@ -200,5 +200,5 @@ now a real test.
 
 - [[entities/riften-router]] — what the router was, and why it stopped working
 - [[security/dex-swap-integration]] — the security model
-- [[references/gates-that-pass-when-they-should-fail]] — measurement errors that
+- [[references/swaps/gates-that-pass-when-they-should-fail]] — measurement errors that
   masqueraded as drained liquidity
